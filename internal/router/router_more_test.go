@@ -47,15 +47,16 @@ func TestFallbackCandidatesArePopulated(t *testing.T) {
 	if len(d.Candidates) == 0 {
 		t.Fatal("expected fallback candidates")
 	}
-	// The primary is GLM Flash; a candidate should be the next worker preference.
+	// The primary is DeepSeek V4.1 Flash; a candidate should be the next worker
+	// preference (GLM).
 	found := false
 	for _, c := range d.Candidates {
-		if c.UpstreamModel == "deepseek/deepseek-v4.1-flash" {
+		if c.UpstreamModel == "z-ai/glm-5.3-flash" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected deepseek fallback, got %+v", d.Candidates)
+		t.Fatalf("expected glm fallback, got %+v", d.Candidates)
 	}
 }
 

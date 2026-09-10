@@ -26,8 +26,8 @@ func TestRouteVirtualWorkerToCheapModel(t *testing.T) {
 	if d.Provider.ID != "openrouter" {
 		t.Fatalf("provider = %q, want openrouter", d.Provider.ID)
 	}
-	if d.UpstreamModel != "z-ai/glm-5.3-flash" {
-		t.Fatalf("upstream = %q, want z-ai/glm-5.3-flash", d.UpstreamModel)
+	if d.UpstreamModel != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("upstream = %q, want deepseek/deepseek-v4.1-flash", d.UpstreamModel)
 	}
 	if d.Translate {
 		t.Fatal("expected no translation: openrouter has an anthropic base URL")

@@ -604,7 +604,7 @@ Start **deterministic + cheap**, evolve to **learned**:
 
 **Cascade / escalation (the "allow Opus in")**
 ```
-worker task → GLM-5.3-Flash
+worker task → DeepSeek-V4.1-Flash
    ├─ tool error / refusal / loop / test still failing?
    │      → retry on GLM-5.3 (smart worker)
    │      → then DeepSeek-V4-Pro / Kimi-K3 (reviewer tier)
@@ -739,7 +739,7 @@ roles:
   architect: { tier: frontier, prefer: [native/anthropic, native/openai] }
   lead:      { tier: frontier, prefer: [native/anthropic, openrouter/z-ai/glm-5.3] }
   reviewer:  { tier: smart,    prefer: [openrouter/moonshotai/kimi-k3, openrouter/z-ai/glm-5.3] }
-  worker:    { tier: cheap,    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4.1-flash] }
+  worker:    { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4.1-flash, openrouter/z-ai/glm-5.3-flash] }
   scout:     { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4.1-flash, openrouter/z-ai/glm-5.3-flash] }
   escalate:  { tier: frontier, prefer: [native/anthropic, native/openai] }
 
@@ -827,8 +827,8 @@ Cheap intelligence, matched to task shape (prices are OpenRouter list, per M tok
 
 | Model | In / Out | Best at | Use as |
 |---|---|---|---|
-| `z-ai/glm-5.3-flash` | $0.15 / $0.50 | agentic, code, huge context (1.31M) | default worker/scout |
-| `deepseek/deepseek-v4.1-flash` | $0.15 / $0.60 | throughput, classification, rote | scout, high-fanout, classifier |
+| `deepseek/deepseek-v4.1-flash` | $0.15 / $0.60 | throughput, classification, rote | default worker/scout |
+| `z-ai/glm-5.3-flash` | $0.15 / $0.50 | agentic, code, huge context (1.31M) | GLM fallback |
 | `moonshotai/kimi-k3` | $2.50 / $14 | long context, tool use, agentic | reviewer, long-context worker |
 | `z-ai/glm-5.3` | $1.01 / $3.41 | reasoning, code generation | smart worker, medium lead |
 | `deepseek/deepseek-v4-pro` | $0.66 / $1.98 | reasoning/list price | reviewer fallback |

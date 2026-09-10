@@ -92,8 +92,8 @@ func TestAnthropicSubagentRoutesToCheapModel(t *testing.T) {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status %d: %s", resp.StatusCode, raw)
 	}
-	if cap.model != "z-ai/glm-5.3-flash" {
-		t.Fatalf("upstream model = %q, want z-ai/glm-5.3-flash", cap.model)
+	if cap.model != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("upstream model = %q, want deepseek/deepseek-v4.1-flash", cap.model)
 	}
 	if cap.path != "/v1/messages" {
 		t.Fatalf("upstream path = %q", cap.path)
@@ -260,8 +260,8 @@ func TestHotReloadSwapsRouting(t *testing.T) {
 		return last
 	}
 
-	if got := post(); got != "z-ai/glm-5.3-flash" {
-		t.Fatalf("initial model = %q, want glm-5.3-flash", got)
+	if got := post(); got != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("initial model = %q, want deepseek-v4.1-flash", got)
 	}
 
 	// Build a new config with a different worker preference and apply it live.
@@ -270,13 +270,13 @@ func TestHotReloadSwapsRouting(t *testing.T) {
 	for k, v := range base.Roles {
 		roles[k] = v
 	}
-	roles["worker"] = config.Role{Tier: "cheap", Prefer: []string{"openrouter/deepseek/deepseek-v4.1-flash"}}
+	roles["worker"] = config.Role{Tier: "cheap", Prefer: []string{"openrouter/z-ai/glm-5.3-flash"}}
 	next.Roles = roles
 	if err := srv.Apply(&next); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if got := post(); got != "deepseek/deepseek-v4.1-flash" {
-		t.Fatalf("after reload model = %q, want deepseek-v4.1-flash", got)
+	if got := post(); got != "z-ai/glm-5.3-flash" {
+		t.Fatalf("after reload model = %q, want glm-5.3-flash", got)
 	}
 }
 
@@ -331,7 +331,7 @@ func TestFallbackOnUpstreamError(t *testing.T) {
 		var model string
 		_ = json.Unmarshal(env["model"], &model)
 		seen = append(seen, model)
-		if model == "z-ai/glm-5.3-flash" {
+		if model == "deepseek/deepseek-v4.1-flash" {
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
@@ -365,7 +365,7 @@ func TestFallbackOnUpstreamError(t *testing.T) {
 	if len(seen) < 2 {
 		t.Fatalf("expected fallback attempt, saw %v", seen)
 	}
-	if seen[len(seen)-1] == "z-ai/glm-5.3-flash" {
+	if seen[len(seen)-1] == "deepseek/deepseek-v4.1-flash" {
 		t.Fatalf("did not fall through: %v", seen)
 	}
 }
