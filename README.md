@@ -46,7 +46,7 @@ vector --version
 vector guide        # setup guide + current machine state
 ```
 
-## Set it up with your agent
+## Setup with your agent
 
 Paste this into Claude Code, Codex, OpenCode, or any coding agent. It installs
 vector, configures it, wires your harnesses, and verifies — no manual steps.
