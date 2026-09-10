@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Vector — Intelligent Model Router for Subagent Workflows">
+  <title>Vector social preview</title>
+  <defs>
+    <linearGradient id="vArm" x1="404" y1="300" x2="720" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4C7DFF"/>
+      <stop offset="0.45" stop-color="#5B5BF0"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="lineTeal" x1="618" y1="492" x2="872" y2="262" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123A47"/>
+      <stop offset="0.5" stop-color="#0F9E93"/>
+      <stop offset="1" stop-color="#5EEAD4"/>
+    </linearGradient>
+    <linearGradient id="lineViolet" x1="612" y1="524" x2="882" y2="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A1E5C"/>
+      <stop offset="0.5" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#C084FC"/>
+    </linearGradient>
+    <linearGradient id="lineAmber" x1="606" y1="558" x2="852" y2="418" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4A2410"/>
+      <stop offset="0.5" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="#050507"/>
+  <g transform="translate(-10 60) scale(0.62)">
+    <g fill="none" stroke-linecap="round" stroke-width="34">
+      <path d="M 618 492 C 706 452 756 322 848 276" stroke="url(#lineTeal)"/>
+      <path d="M 612 524 C 704 506 778 404 856 348" stroke="url(#lineViolet)"/>
+      <path d="M 606 558 C 692 586 776 476 830 424" stroke="url(#lineAmber)"/>
+    </g>
+    <g>
+      <circle cx="866" cy="266" r="30" fill="#5EEAD4"/>
+      <circle cx="878" cy="340" r="30" fill="#C084FC"/>
+      <circle cx="846" cy="418" r="30" fill="#FBBF24"/>
+    </g>
+    <path d="M 440 340 L 608 600 L 700 472" fill="none" stroke="url(#vArm)"
+          stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="560" y="320" fill="#F8FAFC"
+        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
+        font-size="150" font-weight="700" letter-spacing="-4">vector</text>
+  <text x="566" y="390" fill="#9CA3AF"
+        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
+        font-size="38" font-weight="400">Intelligent Model Router</text>
+  <text x="566" y="440" fill="#9CA3AF"
+        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
+        font-size="38" font-weight="400">for Subagent Workflows</text>
+</svg>
