@@ -1,20 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Vector — Intelligent Model Router for Subagent Workflows">
-  <title>Vector social preview</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="vector — Intelligent Model Router for Subagent Workflows">
+  <title>vector social preview</title>
   <rect width="1280" height="640" fill="#0B0B0D"/>
   <g transform="translate(132 170)">
     <rect width="300" height="300" rx="68" fill="#C7F04A"/>
     <g transform="scale(0.293)">
-      <path d="M336 324 L512 700 L688 324" fill="none" stroke="#0B0B0D"
-            stroke-width="132" stroke-linecap="round" stroke-linejoin="round"/>
+      <g stroke="#0B0B0D" fill="none" stroke-linecap="round">
+        <path d="M549 567 L823 567" stroke-width="25"/>
+        <path d="M602 472 L823 472" stroke-width="25"/>
+        <path d="M655 377 L823 377" stroke-width="25"/>
+        <path d="M263 320 L475 700 L687 320" stroke-width="132" stroke-linejoin="round"/>
+      </g>
+      <g fill="#0B0B0D">
+        <rect x="808" y="552" width="30" height="30" rx="8"/>
+        <rect x="808" y="457" width="30" height="30" rx="8"/>
+        <rect x="808" y="362" width="30" height="30" rx="8"/>
+      </g>
     </g>
   </g>
-  <text x="510" y="330" fill="#F5F5F2"
-        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
-        font-size="150" font-weight="700" letter-spacing="-4">Vector</text>
-  <text x="516" y="410" fill="#8A8A85"
-        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
+  <text x="518" y="330" fill="#F5F5F2"
+        font-family="'Avenir Next','Avenir','Futura','Helvetica Neue',sans-serif"
+        font-size="150" font-weight="700" letter-spacing="-4">vector</text>
+  <text x="524" y="410" fill="#8A8A85"
+        font-family="'Avenir Next','Avenir','Futura','Helvetica Neue',sans-serif"
         font-size="40" font-weight="500">Intelligent Model Router</text>
-  <text x="516" y="464" fill="#8A8A85"
-        font-family="'Inter','Helvetica Neue',Helvetica,Arial,sans-serif"
+  <text x="524" y="464" fill="#8A8A85"
+        font-family="'Avenir Next','Avenir','Futura','Helvetica Neue',sans-serif"
         font-size="40" font-weight="500">for Subagent Workflows</text>
 </svg>

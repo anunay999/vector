@@ -1,6 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Vector">
   <title>Vector avatar</title>
   <rect width="1024" height="1024" fill="#C7F04A"/>
-  <path d="M336 324 L512 700 L688 324" fill="none" stroke="#0B0B0D"
-        stroke-width="132" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#0B0B0D" fill="none" stroke-linecap="round">
+    <path d="M549 567 L823 567" stroke-width="25"/>
+    <path d="M602 472 L823 472" stroke-width="25"/>
+    <path d="M655 377 L823 377" stroke-width="25"/>
+    <path d="M263 320 L475 700 L687 320" stroke-width="132" stroke-linejoin="round"/>
+  </g>
+  <g fill="#0B0B0D">
+    <rect x="808" y="552" width="30" height="30" rx="8"/>
+    <rect x="808" y="457" width="30" height="30" rx="8"/>
+    <rect x="808" y="362" width="30" height="30" rx="8"/>
+  </g>
 </svg>
