@@ -260,6 +260,34 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
+	// Cost per day histogram.
+	b.WriteString(cBold + " COST / DAY" + cReset + cDim + " last 14d" + cReset)
+	if len(snap.Daily) > 0 {
+		costs := make([]float64, len(snap.Daily))
+		total, peak := 0.0, 0.0
+		for i, d := range snap.Daily {
+			costs[i] = d.Cost
+			total += d.Cost
+			if d.Cost > peak {
+				peak = d.Cost
+			}
+		}
+		fmt.Fprintf(&b, "   %stotal %s   peak %s%s\n", cDim, money(total), money(peak), cReset)
+		for _, row := range verticalBars(costs, 5) {
+			fmt.Fprintf(&b, "   %s%s%s\n", cGreen, row, cReset)
+		}
+		first := snap.Daily[0].Date.Format("01-02")
+		last := snap.Daily[len(snap.Daily)-1].Date.Format("01-02")
+		pad := len(costs) - len(first) - len(last)
+		if pad < 1 {
+			pad = 1
+		}
+		fmt.Fprintf(&b, "   %s%s%s%s%s\n", cDim, first, strings.Repeat(" ", pad), last, cReset)
+	} else {
+		fmt.Fprintf(&b, "   %s(no data)%s\n", cDim, cReset)
+	}
+	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
+
 	// Roles.
 	b.WriteString(cBold + " ROLES" + cReset + "\n")
 	fmt.Fprintf(&b, "  %-16s %-32s %5s %8s %6s %9s %11s %3s\n", "role", "model", "req", "tokens", "tok/s", "cost", "p50/p95", "err")
@@ -434,4 +462,32 @@ func barChart(frac float64, width int, color string) string {
 		filled = width
 	}
 	return color + strings.Repeat("█", filled) + cDim + strings.Repeat("░", width-filled) + cReset
+}
+
+// verticalBars renders one column per value as a stack of blocks, tallest value
+// = full height. Rows are returned top-first.
+func verticalBars(vals []float64, height int) []string {
+	peak := 0.0
+	for _, v := range vals {
+		if v > peak {
+			peak = v
+		}
+	}
+	if peak <= 0 {
+		peak = 1
+	}
+	rows := make([]string, height)
+	for r := 0; r < height; r++ {
+		var sb strings.Builder
+		for _, v := range vals {
+			filled := int(v/peak*float64(height) + 0.5)
+			if filled >= height-r {
+				sb.WriteString("█")
+			} else {
+				sb.WriteString(" ")
+			}
+		}
+		rows[r] = sb.String()
+	}
+	return rows
 }

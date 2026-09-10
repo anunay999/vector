@@ -40,12 +40,39 @@ func newSpendCmd() *cobra.Command {
 			printGroups("By provider", snap.ByProvider)
 			printGroups("By role", snap.ByRole)
 			printGroups("By model", snap.ByModel)
+			printDaily(snap.Daily)
 			return nil
 		},
 	}
 	cmd.Flags().DurationVar(&since, "since", 24*time.Hour, "window (e.g. 24h, 168h)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON")
 	return cmd
+}
+
+func printDaily(days []stats.Day) {
+	any := false
+	for _, d := range days {
+		if d.Requests > 0 {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return
+	}
+	fmt.Printf("\nBy day (last %dd):\n", len(days))
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "  DATE\tREQUESTS\tTOKENS\tCOST")
+	var sum float64
+	for _, d := range days {
+		if d.Requests == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "  %s\t%d\t%d\t$%.4f\n", d.Date.Format("2006-01-02"), d.Requests, d.Tokens, d.Cost)
+		sum += d.Cost
+	}
+	fmt.Fprintf(w, "  %s\t\t\t$%.4f\n", "total", sum)
+	w.Flush()
 }
 
 func printGroups(title string, m map[string]*stats.Group) {

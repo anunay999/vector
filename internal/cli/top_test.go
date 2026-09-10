@@ -36,3 +36,19 @@ func TestSparklineLengthAndPeak(t *testing.T) {
 		t.Fatalf("expected the minimum to be the lowest block: %q", out)
 	}
 }
+
+func TestVerticalBars(t *testing.T) {
+	rows := verticalBars([]float64{0, 2, 1}, 4)
+	if len(rows) != 4 {
+		t.Fatalf("rows = %d, want 4", len(rows))
+	}
+	top := []rune(rows[0])
+	bottom := []rune(rows[3])
+	// Peak column (index 1) is full height; zero column (index 0) is empty.
+	if top[0] != ' ' || top[1] != '█' || top[2] != ' ' {
+		t.Fatalf("top row = %q", rows[0])
+	}
+	if bottom[0] != ' ' || bottom[1] != '█' || bottom[2] != '█' {
+		t.Fatalf("bottom row = %q", rows[3])
+	}
+}

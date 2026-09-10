@@ -54,6 +54,8 @@ vector spend --json            # usage and estimated cost
 vector top [--once]            # live dashboard
 vector logs [--follow]         # gateway log
 vector telemetry [--json]      # raw request records
+vector agents [--json]         # list harness agents + whether routed
+vector claude|codex route <agent> [role]  # route an existing agent
 vector config get|set <path>   # edit config by dotted path
 vector env set|list|unset      # manage secrets (list redacts)
 vector up|down|restart|serve   # gateway lifecycle
@@ -78,7 +80,9 @@ Roles are exposed to harnesses as `vector-<role>`. `architect`/`lead` are
 `primary: true` and prefer native providers; subagent roles prefer cheap models.
 Providers are any OpenAI-compatible endpoint plus native Anthropic/OpenAI. Native
 providers use the caller's own credential (`native: true`); everything else uses
-a configured key.
+a configured key. If the native plan is out of credits, the next candidate (the
+cheap pool) is tried automatically; reorder `roles.architect.prefer` to force a
+cheap planner.
 
 Full reference: `docs/configuration.md`. Design: `docs/architecture-proposal.md`.
 
@@ -111,15 +115,17 @@ make vet
 
 ```
 cmd/vector            CLI entry point
+internal/cli          commands (init, setup, top, logs, telemetry, agents, …)
 internal/config       load, validate, defaults, env file
 internal/llm          canonical provider-neutral types
 internal/registry     model registry
 internal/router       role resolution, policies, fallback candidates
 internal/provider     upstream request building, auth, streaming
 internal/gateway      HTTP surface, usage/cost, budget
+internal/stats        aggregation for the dashboard and spend
 internal/budget       spend ceilings + concurrency
 internal/telemetry    JSONL request store
 internal/harness      Claude Code / Codex / OpenCode adapters
 internal/service      launchd / systemd install
-docs/                 configuration, install, design
+docs/                 configuration, install, governance, design
 ```

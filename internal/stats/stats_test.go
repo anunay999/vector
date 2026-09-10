@@ -7,6 +7,30 @@ import (
 	"github.com/anunay999/vector/internal/telemetry"
 )
 
+func TestDailySeries(t *testing.T) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	recs := []telemetry.Record{
+		{Time: today, EstCostUSD: 0.10, InputTokens: 10, OutputTokens: 5},
+		{Time: today.AddDate(0, 0, -1), EstCostUSD: 0.02},
+		{Time: today.AddDate(0, 0, -30), EstCostUSD: 9.99}, // outside the window
+	}
+	days := dailySeries(recs, 3)
+	if len(days) != 3 {
+		t.Fatalf("len = %d, want 3", len(days))
+	}
+	last := days[2]
+	if last.Requests != 1 || last.Cost != 0.10 || last.Tokens != 15 {
+		t.Fatalf("today bucket = %+v", last)
+	}
+	if days[1].Requests != 1 {
+		t.Fatalf("yesterday bucket = %+v", days[1])
+	}
+	if days[0].Requests != 0 {
+		t.Fatalf("old day should be empty: %+v", days[0])
+	}
+}
+
 func TestAggregate(t *testing.T) {
 	now := time.Now()
 	recs := []telemetry.Record{

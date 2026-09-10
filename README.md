@@ -58,7 +58,7 @@ vector doctor                       # verify config, keys, gateway, and wiring
 private env file, and can wire your harnesses. It never overwrites an existing
 configuration. `up` starts the gateway in the background; run `vector service
 install` to start it at login. `doctor` inspects the full path and reports the
-first problem with a concrete fix.
+first problem with a concrete fix. Watch it live with `vector top`.
 
 For automation, the same setup runs non-interactively:
 
@@ -134,6 +134,21 @@ write `route scout scout`. `route` edits only the model binding (frontmatter for
 Claude, the role file for Codex), backs the file up once, and leaves the prompt
 untouched. To force every subagent onto one model instead, set
 `force_subagent_model: true` on the harness.
+
+## Dashboard
+
+```sh
+vector top
+```
+
+A live, refreshing dashboard over local telemetry: 30-minute request and cost
+sparklines, a model-mix bar chart, a **14-day cost-per-day histogram**, an
+off-plan gauge, per-role latency percentiles and average output tok/s, and the
+most recent requests.
+
+Keys: `q` quit, `p` pause, `r` refresh, `f` filter by role, `v` filter by
+provider, `a` clear filters. `vector top --once` prints a single frame for
+screenshots or CI logs; `--since` and `--interval` tune the window and refresh.
 
 ## How it works
 
@@ -246,6 +261,29 @@ Roles are ordered preference lists. Daily and per-provider budget ceilings,
 concurrency caps, and a fallback chain are all configurable. See
 [docs/configuration.md](docs/configuration.md) for every field, or
 `vector schema` for the machine-readable schema.
+
+If you run out of subscription credits, the planner can keep working on the cheap
+pool: Vector retries the next candidate on a `429`, `5xx`, or a credit/quota
+error, and you can force a cheap planner by reordering the `architect` role. See
+[docs/configuration.md](docs/configuration.md#degraded-mode-running-the-planner-on-a-cheap-model).
+
+## CLI
+
+```text
+vector init | setup | guide | schema
+vector up | down | restart | serve | status | doctor
+vector config init | show | path | get | set | validate
+vector env path | list | set | unset
+vector service install | uninstall | status
+vector claude | codex | opencode   on | off | status
+vector agents [--json]
+vector claude | codex   agents | route <agent> [role]
+vector models [--json]
+vector top [--once] [--since 24h] [--interval 1s]
+vector logs [--follow] [--lines N] [--path]
+vector telemetry [--since 24h] [--json] [--follow] [--role R] [--provider P]
+vector spend [--since 24h] [--json]
+```
 
 ## Upgrade
 

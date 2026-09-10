@@ -70,6 +70,17 @@ const (
 	BucketDur   = time.Minute
 )
 
+// HistogramDays is how many days the daily cost histogram covers.
+const HistogramDays = 14
+
+// Day is one calendar day of activity.
+type Day struct {
+	Date     time.Time
+	Requests int
+	Cost     float64
+	Tokens   int
+}
+
 // Snapshot is an aggregate over a time window.
 type Snapshot struct {
 	Since          time.Time
@@ -90,7 +101,9 @@ type Snapshot struct {
 	RoleModel map[string]string
 	// Buckets is a fixed-width, oldest-first time series for sparklines.
 	Buckets []Bucket
-	Recent  []telemetry.Record
+	// Daily is a 14-day, oldest-first series for the cost histogram.
+	Daily  []Day
+	Recent []telemetry.Record
 }
 
 // Tokens returns the total token count.
@@ -129,10 +142,15 @@ func (f Filter) active() bool {
 }
 
 // Collect reads telemetry for the window and aggregates it, optionally filtered.
+// It reads at least HistogramDays so the daily series is always complete.
 func Collect(cfg *config.Config, since time.Duration, recent int, f Filter) (Snapshot, error) {
 	rec := telemetry.New(cfg.TelemetryDir(), cfg.Telemetry.Enabled)
-	start := time.Now().Add(-since)
-	records, err := rec.ReadSince(start)
+	readWindow := since
+	if minWindow := time.Duration(HistogramDays) * 24 * time.Hour; readWindow < minWindow {
+		readWindow = minWindow
+	}
+	now := time.Now()
+	records, err := rec.ReadSince(now.Add(-readWindow))
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -158,7 +176,43 @@ func Collect(cfg *config.Config, since time.Duration, recent int, f Filter) (Sna
 			native[p.ID] = true
 		}
 	}
-	return Aggregate(records, start, native, recent), nil
+	windowStart := now.Add(-since)
+	window := records
+	if since < readWindow {
+		window = make([]telemetry.Record, 0, len(records))
+		for _, r := range records {
+			if !r.Time.Before(windowStart) {
+				window = append(window, r)
+			}
+		}
+	}
+	snap := Aggregate(window, windowStart, native, recent)
+	snap.Daily = dailySeries(records, HistogramDays)
+	return snap, nil
+}
+
+// dailySeries buckets records into the last `days` calendar days (local time),
+// oldest first.
+func dailySeries(records []telemetry.Record, days int) []Day {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	out := make([]Day, days)
+	index := map[string]int{}
+	for i := range out {
+		d := today.AddDate(0, 0, -(days - 1 - i))
+		out[i].Date = d
+		index[d.Format("2006-01-02")] = i
+	}
+	for _, r := range records {
+		i, ok := index[r.Time.In(now.Location()).Format("2006-01-02")]
+		if !ok {
+			continue
+		}
+		out[i].Requests++
+		out[i].Cost += r.EstCostUSD
+		out[i].Tokens += r.InputTokens + r.OutputTokens
+	}
+	return out
 }
 
 // Aggregate computes a snapshot from records.
