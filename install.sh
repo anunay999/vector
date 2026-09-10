@@ -89,6 +89,60 @@ install_from_go() {
   GOBIN="$BIN_DIR" go install "github.com/$REPO/cmd/vector@latest"
 }
 
+
+# ensure_path adds BIN_DIR to the user's shell startup file when it is not
+# already on PATH. Idempotent (marker-guarded); opt out with
+# VECTOR_NO_MODIFY_PATH=1.
+ensure_path() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) say "ok: $BIN_DIR is already on your PATH"; return ;;
+  esac
+
+  if [ "${VECTOR_NO_MODIFY_PATH:-0}" = "1" ]; then
+    path_hint
+    return
+  fi
+
+  shell_name=$(basename "${SHELL:-}")
+  case "$shell_name" in
+    zsh)  rcs="$HOME/.zshrc"; line="export PATH=\"$BIN_DIR:\$PATH\"" ;;
+    bash) rcs="$HOME/.bashrc"
+          if [ -f "$HOME/.bash_profile" ]; then rcs="$HOME/.bash_profile $rcs"; fi
+          line="export PATH=\"$BIN_DIR:\$PATH\"" ;;
+    fish) rcs="$HOME/.config/fish/config.fish"; line="fish_add_path \"$BIN_DIR\"" ;;
+    *)    path_hint; return ;;
+  esac
+
+  marker="# >>> vector >>>"
+  added=""; found=0
+  for rc in $rcs; do
+    if [ -f "$rc" ] && grep -qF "$marker" "$rc" 2>/dev/null; then found=1; continue; fi
+    mkdir -p "$(dirname "$rc")" 2>/dev/null || continue
+    if printf '\n%s\n%s\n# <<< vector <<<\n' "$marker" "$line" >> "$rc" 2>/dev/null; then
+      added="$added $rc"
+    fi
+  done
+
+  if [ -n "$added" ]; then
+    say "ok: added $BIN_DIR to PATH in:$added"
+    say "    open a new shell, or run: source$(printf ' %s' $added)"
+  elif [ "$found" = 1 ]; then
+    say "ok: PATH already configured by vector"
+  else
+    path_hint
+  fi
+}
+
+# path_hint prints the manual instruction when we cannot edit a startup file.
+path_hint() {
+  say ""
+  say "Add $BIN_DIR to your PATH manually:"
+  case "$(basename "${SHELL:-}")" in
+    fish) say "  fish_add_path \"$BIN_DIR\"" ;;
+    *)    say "  echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.$(basename "${SHELL:-sh}")rc && source ~/.$(basename "${SHELL:-sh}")rc" ;;
+  esac
+}
+
 os=$(detect_os)
 arch=$(detect_arch)
 
@@ -102,12 +156,7 @@ fi
 say ""
 say "✓ installed $BINARY to $BIN_DIR/$BINARY"
 
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *) say ""
-     say "Add $BIN_DIR to your PATH:"
-     say "  echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc && source ~/.zshrc" ;;
-esac
+ensure_path
 
 say ""
 say "Next:"

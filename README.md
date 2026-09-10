@@ -19,8 +19,8 @@ Vector supports macOS and Linux on Apple Silicon, Intel, and ARM.
 
 ## Install
 
-One-line installer — downloads the release, verifies its checksum, and installs
-to `~/.local/bin`:
+One-line installer — downloads the release, verifies its checksum, installs to
+`~/.local/bin`, and adds that directory to your shell's `PATH` if needed:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh

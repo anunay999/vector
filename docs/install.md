@@ -10,13 +10,26 @@ The script detects your OS/architecture, downloads the matching release, verifie
 its SHA-256 checksum, and installs the `vector` binary to `~/.local/bin`. If no
 release is published yet, it falls back to `go install`.
 
+It also makes `vector` findable: if the install directory is not already on your
+`PATH`, the script appends a marker-guarded block to your shell startup file
+(`~/.zshrc`, `~/.bashrc`/`~/.bash_profile`, or fish's `config.fish`). Re-running
+the installer is safe — the block is only added once. No manual `PATH` edit and no
+shell restart are needed; open a new shell (or `source` the file) and `vector`
+resolves.
+
 Overrides:
 
 ```sh
-VECTOR_VERSION=v0.1.0 curl ... | sh      # pin a version
-VECTOR_BIN_DIR=/usr/local/bin curl ... | sh
-VECTOR_NO_VERIFY=1 curl ... | sh         # skip checksum verification
+VECTOR_VERSION=v0.1.0 curl ... | sh          # pin a version
+VECTOR_BIN_DIR=/usr/local/bin curl ... | sh  # install elsewhere (already on PATH)
+VECTOR_NO_MODIFY_PATH=1 curl ... | sh        # don't touch shell startup files
+VECTOR_NO_VERIFY=1 curl ... | sh             # skip checksum verification
 ```
+
+If `VECTOR_NO_MODIFY_PATH=1` is set (or the shell can't be detected) the script
+prints the line to add yourself. Note that `go install` without `GOBIN` puts the
+binary in `$(go env GOPATH)/bin`, which is often not on `PATH`; use the one-liner
+or `vector` will not be found.
 
 ## Other methods
 
