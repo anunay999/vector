@@ -21,7 +21,7 @@ func newSpendCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			snap, err := stats.Collect(cfg, since, 0)
+			snap, err := stats.Collect(cfg, since, 0, stats.Filter{})
 			if err != nil {
 				return err
 			}

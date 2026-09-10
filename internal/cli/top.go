@@ -33,17 +33,18 @@ func newTopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "top",
 		Short: "Live dashboard of routing, spend, and recent requests",
-		Long: "A refreshing dashboard over local telemetry. Keys: q quit, p pause,\n" +
-			"r refresh. Use --once to print a single frame (for screenshots or scripts).",
+		Long: "A refreshing dashboard over local telemetry.\n" +
+			"Keys: q quit, p pause, r refresh, f filter by role, v filter by provider, a clear filters.\n" +
+			"Use --once to print a single frame (for screenshots or scripts).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
 				return err
 			}
 			if once {
-				snap, serr := stats.Collect(cfg, since, 14)
+				snap, serr := stats.Collect(cfg, since, 14, stats.Filter{})
 				w, _ := termSize()
-				fmt.Print(frame(cfg, snap, serr, w, probeHealth(cfg), false, false))
+				fmt.Print(frame(cfg, snap, serr, w, probeHealth(cfg), false, false, stats.Filter{}))
 				return nil
 			}
 			return runTop(cfg, since, interval)
@@ -94,10 +95,22 @@ func runTop(cfg *config.Config, since, interval time.Duration) error {
 	}
 
 	paused := false
+	var filter stats.Filter
+	roleOptions := append([]string{""}, cfg.RoleNames()...)
+	provOptions := append([]string{""}, cfg.ProviderIDs()...)
+	cycle := func(options []string, current string) string {
+		for i, o := range options {
+			if o == current {
+				return options[(i+1)%len(options)]
+			}
+		}
+		return options[0]
+	}
+
 	render := func() {
 		w, _ := termSize()
-		snap, err := stats.Collect(cfg, since, 14)
-		fmt.Fprint(os.Stdout, frame(cfg, snap, err, w, probeHealth(cfg), paused, true))
+		snap, err := stats.Collect(cfg, since, 14, filter)
+		fmt.Fprint(os.Stdout, frame(cfg, snap, err, w, probeHealth(cfg), paused, true, filter))
 	}
 	render()
 
@@ -116,6 +129,15 @@ func runTop(cfg *config.Config, since, interval time.Duration) error {
 				render()
 			case 'r':
 				render()
+			case 'f':
+				filter.Role = cycle(roleOptions, filter.Role)
+				render()
+			case 'v':
+				filter.Provider = cycle(provOptions, filter.Provider)
+				render()
+			case 'a':
+				filter = stats.Filter{}
+				render()
 			}
 		case <-ticker.C:
 			if !paused {
@@ -133,7 +155,7 @@ func termSize() (int, int) {
 	return 120, 40
 }
 
-func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, gatewayUp, paused, live bool) string {
+func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, gatewayUp, paused, live bool, f stats.Filter) string {
 	if width < 80 {
 		width = 80
 	}
@@ -155,24 +177,92 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 	if paused {
 		pause = "   " + cYellow + "PAUSED" + cReset
 	}
-	fmt.Fprintf(&b, "%svector top%s   routing %s%s%s   gateway %s%s%s   window %s%s%s\n",
-		cBold, cReset, rc, routing, cReset, gc, gw, cReset, cDim, humanDuration(snap.Since), cReset+pause)
+	filterDesc := ""
+	if f.Role != "" || f.Provider != "" || f.Model != "" {
+		var parts []string
+		if f.Role != "" {
+			parts = append(parts, "role="+f.Role)
+		}
+		if f.Provider != "" {
+			parts = append(parts, "provider="+f.Provider)
+		}
+		if f.Model != "" {
+			parts = append(parts, "model="+f.Model)
+		}
+		filterDesc = "   " + cYellow + "filter " + strings.Join(parts, " ") + cReset
+	}
+	fmt.Fprintf(&b, "%svector top%s   routing %s%s%s   gateway %s%s%s   window %s%s%s%s\n",
+		cBold, cReset, rc, routing, cReset, gc, gw, cReset, cDim, humanDuration(snap.Since), cReset+pause, filterDesc)
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
 	if readErr != nil {
 		fmt.Fprintf(&b, "%serror reading telemetry: %v%s\n", cRed, readErr, cReset)
 	}
-	// Summary.
-	fmt.Fprintf(&b, " %s$%.4f%s   off-plan %s%.0f%%%s   requests %d   tokens %s   errors %s   fallbacks %s\n",
-		cBold, snap.Cost, cReset, cCyan, snap.OffPlanPct(), cReset,
-		snap.Requests, humanInt(snap.Tokens()), colorCount(snap.Errors, cRed), colorCount(snap.Fallbacks, cYellow))
-	fmt.Fprintf(&b, " %s%.1f req/min%s   refreshed %s\n",
-		cDim, snap.PerMinute(), cReset, snap.Generated.Format("15:04:05"))
+	// Summary with an off-plan gauge.
+	fmt.Fprintf(&b, " %s$%.4f%s  off-plan %s %s%.0f%%%s  req %d  tokens %s  tok/s %s%.0f%s  err %s  fb %s\n",
+		cBold, snap.Cost, cReset,
+		barChart(snap.OffPlanPct()/100, 16, cGreen), cCyan, snap.OffPlanPct(), cReset,
+		snap.Requests, humanInt(snap.Tokens()), cCyan, snap.TokensPerSec(), cReset,
+		colorCount(snap.Errors, cRed), colorCount(snap.Fallbacks, cYellow))
+	fmt.Fprintf(&b, " %s%.1f req/min%s   refreshed %s\n", cDim, snap.PerMinute(), cReset, snap.Generated.Format("15:04:05"))
+	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
+
+	// Throughput sparklines.
+	reqVals := make([]float64, 0, len(snap.Buckets))
+	costVals := make([]float64, 0, len(snap.Buckets))
+	for _, bk := range snap.Buckets {
+		reqVals = append(reqVals, float64(bk.Requests))
+		costVals = append(costVals, bk.Cost)
+	}
+	fmt.Fprintf(&b, "%s THROUGHPUT%s%s last 30m%s\n", cBold, cReset, cDim, cReset)
+	fmt.Fprintf(&b, "  req   %s  %s%.1f/min%s\n", sparkline(reqVals, cCyan), cDim, snap.PerMinute(), cReset)
+	fmt.Fprintf(&b, "  cost  %s  %s%s%s\n", sparkline(costVals, cGreen), cDim, money(snap.Cost), cReset)
+	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
+
+	// Model mix bars + provider summary.
+	b.WriteString(cBold + " MODEL MIX" + cReset + "\n")
+	models := stats.SortedKeys(snap.ByModel)
+	if len(models) == 0 {
+		fmt.Fprintf(&b, "  %s(no requests yet)%s\n", cDim, cReset)
+	}
+	maxReq := 1
+	for _, m := range models {
+		if g := snap.ByModel[m]; g.Requests > maxReq {
+			maxReq = g.Requests
+		}
+	}
+	for i, m := range models {
+		if i >= 5 {
+			break
+		}
+		g := snap.ByModel[m]
+		share := 0.0
+		if snap.Requests > 0 {
+			share = 100 * float64(g.Requests) / float64(snap.Requests)
+		}
+		fmt.Fprintf(&b, "  %-30s %s %5d %4.0f%%\n",
+			truncate(m, 30), barChart(float64(g.Requests)/float64(maxReq), 20, cCyan), g.Requests, share)
+	}
+	if provKeys := stats.SortedKeys(snap.ByProvider); len(provKeys) > 0 {
+		var parts []string
+		for _, p := range provKeys {
+			label := p
+			if isNative(cfg, p) {
+				label += "*"
+			}
+			share := 0.0
+			if snap.Requests > 0 {
+				share = 100 * float64(snap.ByProvider[p].Requests) / float64(snap.Requests)
+			}
+			parts = append(parts, fmt.Sprintf("%s %d (%.0f%%)", label, snap.ByProvider[p].Requests, share))
+		}
+		fmt.Fprintf(&b, "  %sproviders: %s%s\n", cDim, strings.Join(parts, "  ·  "), cReset)
+	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
 	// Roles.
 	b.WriteString(cBold + " ROLES" + cReset + "\n")
-	fmt.Fprintf(&b, "  %-16s %-34s %6s %8s %9s %11s %4s\n", "role", "model", "req", "tokens", "cost", "p50/p95", "err")
+	fmt.Fprintf(&b, "  %-16s %-32s %5s %8s %6s %9s %11s %3s\n", "role", "model", "req", "tokens", "tok/s", "cost", "p50/p95", "err")
 	roleKeys := stats.SortedKeys(snap.ByRole)
 	if len(roleKeys) == 0 {
 		fmt.Fprintf(&b, "  %s(no requests yet)%s\n", cDim, cReset)
@@ -183,27 +273,11 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 		if model == "" {
 			model = "-"
 		}
-		fmt.Fprintf(&b, "  %-16s %-34s %6d %8s %9s %11s %4s\n",
-			truncate(role, 16), truncate(model, 34), g.Requests,
-			humanInt(g.InputTokens+g.OutputTokens), money(g.Cost),
+		fmt.Fprintf(&b, "  %-16s %-32s %5d %8s %6.0f %9s %11s %3s\n",
+			truncate(role, 16), truncate(model, 32), g.Requests,
+			humanInt(g.InputTokens+g.OutputTokens), g.TokensPerSec(), money(g.Cost),
 			fmt.Sprintf("%s/%s", ms(g.P50()), ms(g.P95())),
 			colorCount(g.Errors, cRed))
-	}
-	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
-
-	// Providers.
-	b.WriteString(cBold + " PROVIDERS" + cReset + "\n")
-	provKeys := stats.SortedKeys(snap.ByProvider)
-	if len(provKeys) == 0 {
-		fmt.Fprintf(&b, "  %s(none)%s\n", cDim, cReset)
-	}
-	for _, p := range provKeys {
-		g := snap.ByProvider[p]
-		label := p
-		if isNative(cfg, p) {
-			label += " (native)"
-		}
-		fmt.Fprintf(&b, "  %-24s %6d req %8s %9s %4s\n", truncate(label, 24), g.Requests, humanInt(g.InputTokens+g.OutputTokens), money(g.Cost), colorCount(g.Errors, cRed))
 	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
@@ -229,7 +303,7 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 	}
 
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
-	fmt.Fprintf(&b, " %sq quit   p pause   r refresh%s\n", cDim, cReset)
+	fmt.Fprintf(&b, " %sq quit   p pause   r refresh   f role   v provider   a clear%s\n", cDim, cReset)
 	if live {
 		b.WriteString("\x1b[J") // clear anything below
 	}
@@ -315,4 +389,49 @@ func colorCount(n int, color string) string {
 		return "0"
 	}
 	return fmt.Sprintf("%s%d%s", color, n, cReset)
+}
+
+var sparkRunes = []rune("▁▂▃▄▅▆▇█")
+
+// sparkline renders values as a compact block chart; the tallest value maps to
+// a full block.
+func sparkline(vals []float64, color string) string {
+	if len(vals) == 0 {
+		return ""
+	}
+	min, max := vals[0], vals[0]
+	for _, v := range vals {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	var b strings.Builder
+	b.WriteString(color)
+	for _, v := range vals {
+		idx := 0
+		if max > min {
+			idx = int((v-min)/(max-min)*float64(len(sparkRunes)-1) + 0.5)
+		}
+		b.WriteRune(sparkRunes[idx])
+	}
+	b.WriteString(cReset)
+	return b.String()
+}
+
+// barChart renders a 0..1 fraction as a filled/empty block bar.
+func barChart(frac float64, width int, color string) string {
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	filled := int(frac*float64(width) + 0.5)
+	if filled > width {
+		filled = width
+	}
+	return color + strings.Repeat("█", filled) + cDim + strings.Repeat("░", width-filled) + cReset
 }

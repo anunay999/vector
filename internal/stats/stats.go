@@ -40,28 +40,70 @@ func (g *Group) P50() int64 { return percentile(g.Latencies, 0.50) }
 // P95 returns the 95th-percentile latency in milliseconds.
 func (g *Group) P95() int64 { return percentile(g.Latencies, 0.95) }
 
-// Snapshot is an aggregate over a time window.
-type Snapshot struct {
-	Since        time.Time
-	Generated    time.Time
+// TokensPerSec is the group's output throughput: output tokens over summed
+// request latency.
+func (g *Group) TokensPerSec() float64 {
+	var totalMS int64
+	for _, l := range g.Latencies {
+		totalMS += l
+	}
+	if totalMS <= 0 {
+		return 0
+	}
+	return float64(g.OutputTokens) / (float64(totalMS) / 1000)
+}
+
+// Bucket is one time slice of activity.
+type Bucket struct {
+	Time         time.Time
 	Requests     int
+	Cost         float64
 	InputTokens  int
 	OutputTokens int
-	Cost         float64
 	Errors       int
-	OffPlan      int
-	Fallbacks    int
-	LastMinute   int
-	ByRole       map[string]*Group
-	ByProvider   map[string]*Group
-	ByModel      map[string]*Group
+}
+
+// BucketCount and BucketDur define the sparkline window: the last 30 minutes,
+// one bucket per minute.
+const (
+	BucketCount = 30
+	BucketDur   = time.Minute
+)
+
+// Snapshot is an aggregate over a time window.
+type Snapshot struct {
+	Since          time.Time
+	Generated      time.Time
+	Requests       int
+	InputTokens    int
+	OutputTokens   int
+	Cost           float64
+	Errors         int
+	OffPlan        int
+	Fallbacks      int
+	LastMinute     int
+	TotalLatencyMS int64
+	ByRole         map[string]*Group
+	ByProvider     map[string]*Group
+	ByModel        map[string]*Group
 	// RoleModel maps a role to the model that served it most often.
 	RoleModel map[string]string
-	Recent    []telemetry.Record
+	// Buckets is a fixed-width, oldest-first time series for sparklines.
+	Buckets []Bucket
+	Recent  []telemetry.Record
 }
 
 // Tokens returns the total token count.
 func (s Snapshot) Tokens() int { return s.InputTokens + s.OutputTokens }
+
+// TokensPerSec is the overall output throughput: output tokens over summed
+// request latency.
+func (s Snapshot) TokensPerSec() float64 {
+	if s.TotalLatencyMS <= 0 {
+		return 0
+	}
+	return float64(s.OutputTokens) / (float64(s.TotalLatencyMS) / 1000)
+}
 
 // PerMinute approximates the request rate over the last minute.
 func (s Snapshot) PerMinute() float64 { return float64(s.LastMinute) }
@@ -75,13 +117,40 @@ func (s Snapshot) OffPlanPct() float64 {
 	return 100 * float64(s.OffPlan) / float64(s.Requests)
 }
 
-// Collect reads telemetry for the window and aggregates it.
-func Collect(cfg *config.Config, since time.Duration, recent int) (Snapshot, error) {
+// Filter narrows the records a snapshot is built from. Empty fields match all.
+type Filter struct {
+	Role     string
+	Provider string
+	Model    string
+}
+
+func (f Filter) active() bool {
+	return f.Role != "" || f.Provider != "" || f.Model != ""
+}
+
+// Collect reads telemetry for the window and aggregates it, optionally filtered.
+func Collect(cfg *config.Config, since time.Duration, recent int, f Filter) (Snapshot, error) {
 	rec := telemetry.New(cfg.TelemetryDir(), cfg.Telemetry.Enabled)
 	start := time.Now().Add(-since)
 	records, err := rec.ReadSince(start)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	if f.active() {
+		filtered := make([]telemetry.Record, 0, len(records))
+		for _, r := range records {
+			if f.Role != "" && r.Role != f.Role {
+				continue
+			}
+			if f.Provider != "" && r.Provider != f.Provider {
+				continue
+			}
+			if f.Model != "" && r.RoutedModel != f.Model {
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		records = filtered
 	}
 	native := map[string]bool{}
 	for _, p := range cfg.Providers {
@@ -104,11 +173,17 @@ func Aggregate(records []telemetry.Record, since time.Time, nativeProviders map[
 	}
 	roleModel := map[string]map[string]int{}
 	now := time.Now()
+	bucketStart := now.Truncate(BucketDur).Add(-time.Duration(BucketCount-1) * BucketDur)
+	buckets := make([]Bucket, BucketCount)
+	for i := range buckets {
+		buckets[i].Time = bucketStart.Add(time.Duration(i) * BucketDur)
+	}
 	for _, r := range records {
 		s.Requests++
 		s.InputTokens += r.InputTokens
 		s.OutputTokens += r.OutputTokens
 		s.Cost += r.EstCostUSD
+		s.TotalLatencyMS += r.LatencyMS
 		if r.Status >= 400 || r.Error != "" {
 			s.Errors++
 		}
@@ -118,8 +193,15 @@ func Aggregate(records []telemetry.Record, since time.Time, nativeProviders map[
 		if strings.Contains(r.Reason, "fallback") {
 			s.Fallbacks++
 		}
-		if now.Sub(r.Time) <= time.Minute {
-			s.LastMinute++
+		if idx := int(r.Time.Sub(bucketStart) / BucketDur); idx >= 0 && idx < BucketCount {
+			bk := &buckets[idx]
+			bk.Requests++
+			bk.Cost += r.EstCostUSD
+			bk.InputTokens += r.InputTokens
+			bk.OutputTokens += r.OutputTokens
+			if r.Status >= 400 || r.Error != "" {
+				bk.Errors++
+			}
 		}
 		add(s.ByRole, r.Role, r)
 		add(s.ByProvider, r.Provider, r)
@@ -133,6 +215,8 @@ func Aggregate(records []telemetry.Record, since time.Time, nativeProviders map[
 			m[r.RoutedModel]++
 		}
 	}
+	s.Buckets = buckets
+	s.LastMinute = buckets[BucketCount-1].Requests
 	for role, models := range roleModel {
 		best, bestN := "", -1
 		for model, n := range models {

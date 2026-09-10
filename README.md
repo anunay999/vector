@@ -182,7 +182,8 @@ vector status
 vector doctor
 vector doctor --json
 
-vector top                       # live dashboard (q quit, p pause, r refresh)
+vector top                       # live dashboard: sparklines, mix bars, roles
+                                 # keys: q quit, p pause, r refresh, f role, v provider, a clear
 vector top --once                # a single frame
 vector logs                      # tail the gateway log
 vector logs --follow             # stream it
