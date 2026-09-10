@@ -1,239 +1,270 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Vector — Intelligent Model Router for Subagent Workflows" width="220">
+</p>
+
 # vector
 
-**Intelligent subagent model router for any harness.**
+Vector is a local model router for AI coding harnesses. It sends the **subagents**
+your harness spawns to cost-efficient open models while keeping **frontier
+planning** on the Claude and Codex subscriptions you already pay for. One local
+gateway resolves every request to a provider, base URL, and API key, so your plan
+quota goes to the work that needs it.
 
-Vector keeps your frontier model in charge and routes the subagents it spawns to
-cheap, capable open models — so your Claude and Codex subscriptions go further
-without lowering the quality of the work.
+> **Beta:** Vector is under active development. Interfaces, configuration, and
+> behavior may change between releases. Shape translation between Anthropic and
+> OpenAI wire formats is not yet implemented; requests that need it return `501`
+> rather than being sent incorrectly. See [Status](#status-and-troubleshooting).
 
-> **Leave the trunk native. Hijack the leaves.**
-> Claude Fable/Opus and GPT‑6 Astra do the planning, decomposition, and review.
-> GLM‑5.3‑Flash, DeepSeek‑V4‑Flash, and Kimi‑K3 do the execution.
-
-## Who it's for
-
-Developers who already pay for a **Claude subscription and a Codex subscription**
-and whose binding constraint is *subscription quota*, not API spend. Subagents
-are what burn that quota on mechanical work. Vector sends those subagents to a
-pool of cost-efficient models through a single loopback gateway, while the
-planner keeps using the plan credential.
-
-The result is measurable: a higher share of subagent tokens off-plan, a lower
-cost per completed task, and a low escalation rate — with no drop in merge
-quality, because a superior manager compensates for a cheaper worker.
-
-## How it works
-
-Subagents run **natively** in the harness. Vector adds no external runner, no MCP
-host, and no sandbox: it installs *named subagent roles* into each harness and
-resolves the model each role asks for to a provider, base URL, and API key.
-
-```
-                       ┌──────────────────────────────────────────┐
-   Claude Code  ──────► │  vector gateway (loopback)               │
-   Codex        ──────► │   /v1/messages     (Anthropic)           │
-   OpenCode     ──────► │   /v1/chat/completions (OpenAI)          │
-                        │   /v1/responses    (OpenAI)              │
-                        │                                           │
-                        │  classify ─► policy ─► route ─► budget    │
-                        └───────┬───────────────┬──────────────┬────┘
-                                │               │              │
-                         native plan     OpenRouter pool   native API
-                       (Anthropic /        (GLM, DeepSeek,  (keys)
-                        ChatGPT)            Kimi, Gemini…)
-```
-
-The parent model selects a role by name using its **existing** spawn tool
-(Claude Code `Task`, Codex `spawn_agent`, OpenCode `task`). The role carries a
-virtual model name (`vector-worker`), which the gateway resolves:
-
-| Role | Use for | Default backend |
-|---|---|---|
-| `vector-architect` | understand, plan, decompose (primary) | native Claude/Codex |
-| `vector-lead` | coordinate medium multi-step work | native / GLM‑5.3 |
-| `vector-reviewer` | code review, tests, PR comments | Kimi‑K3 / GLM‑5.3 |
-| `vector-worker` | scoped edits, mechanical fixes | GLM‑5.3‑Flash |
-| `vector-scout` | read-only search and summarization | DeepSeek‑V4‑Flash |
-| `vector-researcher` | long-context reading | Kimi‑K3 / Gemini |
-| `vector-escalate` | hard or repeated-failure tasks | native Claude/Codex |
+Vector supports macOS and Linux on Apple Silicon, Intel, and ARM.
 
 ## Install
+
+One-line installer — downloads the release, verifies its checksum, and installs
+to `~/.local/bin`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
 ```
 
-Or with Go: `go install github.com/anunay999/vector/cmd/vector@latest`. See
-[docs/install.md](docs/install.md) for Homebrew, Docker, and CI.
-
-## Configure with an AI agent
-
-Vector is self-describing, so you can hand it to a model and say "set this up":
+With a Go toolchain:
 
 ```sh
-vector guide --json     # step-by-step guide + live state (config, keys, gateway, harnesses)
-vector schema           # JSON Schema for config.yaml, for generating valid config
+go install github.com/anunay999/vector/cmd/vector@latest
+```
+
+From source:
+
+```sh
+git clone https://github.com/anunay999/vector && cd vector
+make build          # produces ./bin/vector
+```
+
+Confirm the install and see the full guide at any time:
+
+```sh
+vector --version
+vector guide        # setup guide + current machine state
+```
+
+## Quick start
+
+```sh
+vector init                         # config, API key, optional harness wiring
+vector up                           # start the local gateway
+vector doctor                       # verify config, keys, gateway, and wiring
+```
+
+`init` writes `~/.config/vector/config.yaml`, stores your OpenRouter key in the
+private env file, and can wire your harnesses. It never overwrites an existing
+configuration. `up` starts the gateway in the background; run `vector service
+install` to start it at login. `doctor` inspects the full path and reports the
+first problem with a concrete fix.
+
+For automation, the same setup runs non-interactively:
+
+```sh
 vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
 ```
 
-`vector setup` is idempotent and non-interactive. Every command supports `--json`
-(`doctor`, `status`, `models`, `spend`, `guide`, `setup`), and
-[AGENTS.md](AGENTS.md) is auto-read by Claude Code, Codex, and OpenCode.
-
-## Quickstart
+## Claude Code
 
 ```sh
-vector init            # guided: config + API key + optional harness wiring
-vector up              # start the gateway
-vector doctor          # verify config, keys, gateway, and wiring
+vector claude on
+vector claude status
 ```
 
-`vector init` is interactive; for automation:
+`claude on` points new Claude Code sessions at the gateway, enables model
+discovery, and installs native subagent definitions under `~/.claude/agents`.
+It backs up the values it changes. Planner traffic is reverse-proxied to
+Anthropic with your **own** credential; subagent traffic goes to the cheap pool.
+Restart Claude Code after enabling or disabling the integration.
+
+Controls:
 
 ```sh
-vector init --yes --key sk-or-... --wire claude,codex
+vector claude on
+vector claude off
+vector claude status
 ```
 
-Then use Claude Code / Codex as normal. The planner stays on your frontier model;
-spawned subagents land on the cheap pool. Verify with:
+## Codex CLI
+
+Codex support writes a managed profile overlay and never touches your
+`~/.codex/config.toml`. The main session stays fully native; only spawned agents
+use the router.
 
 ```sh
-vector status     # gateway + harness wiring
-vector spend      # requests, tokens, estimated cost, off-plan share
-vector models     # roles and the model registry
+vector codex on
+vector codex status
+codex --profile vector
 ```
 
-Run the gateway at login:
+Start Codex without `--profile vector` to keep native OpenAI routing. Remove the
+overlay with `vector codex off`.
+
+## OpenCode
 
 ```sh
-vector service install
+vector opencode on
+vector opencode status
 ```
 
-Full configuration guide: [docs/configuration.md](docs/configuration.md).
+Adds a `vector` provider and per-role subagents to `opencode.json`. Remove them
+with `vector opencode off`.
 
-## Harness wiring
+## How it works
 
-Every adapter is idempotent, backs up once, and removes only the keys it owns.
+A request's model name resolves, strongest signal first, to a
+`(provider, base_url, api_key, upstream_model)` triple:
 
-- **Claude Code** — sets `ANTHROPIC_BASE_URL`, gateway model discovery, and
-  `CLAUDE_CODE_SUBAGENT_MODEL`, and installs `.claude/agents/vector-*.md`.
-  Planner traffic is reverse-proxied to native Anthropic with the **inbound**
-  plan credential; subagent traffic goes to the cheap pool.
-- **Codex** — writes a managed `$CODEX_HOME/vector.config.toml` profile and
-  `agents/vector-*.toml` role files. The user's `config.toml` is never touched,
-  and the main session stays fully native. Run `codex --profile vector`.
-- **OpenCode** — adds a `vector` provider and `vector-*` subagents to
-  `opencode.json`.
+1. an explicit registry model (`openrouter/z-ai/glm-5.3-flash`);
+2. an explicit role hint (`vector-worker`, or header `X-Vector-Role`);
+3. a `policies` rule matching the harness, traffic class, or model;
+4. otherwise native passthrough on your subscription.
+
+Roles are installed as native subagents in each harness, so the frontier model
+chooses one by name using its own spawn tool:
+
+| Role | Use for | Default backend |
+|---|---|---|
+| `vector-architect` | understand, plan, decompose (primary) | native Claude/Codex |
+| `vector-lead` | coordinate medium multi-step work | native / GLM-5.3 |
+| `vector-reviewer` | code review, tests, PR comments | Kimi-K3 / GLM-5.3 |
+| `vector-worker` | scoped edits, mechanical fixes | GLM-5.3-Flash |
+| `vector-scout` | read-only search and summarization | DeepSeek-V4-Flash |
+| `vector-researcher` | long-context reading | Kimi-K3 / Gemini |
+| `vector-escalate` | hard or repeated-failure tasks | native Claude/Codex |
+
+Vector never hosts, sandboxes, or monitors a subagent. Subagents run natively in
+the harness; the router only chooses the model and translates wire formats.
+
+## Configure with an AI agent
+
+Vector is self-describing, so it can be handed to a model to set up:
+
+```sh
+vector guide --json     # step-by-step guide + live state and next actions
+vector schema           # JSON Schema for config.yaml
+vector setup --json     # non-interactive one-shot setup
+```
+
+Every command supports `--json` (`doctor`, `status`, `models`, `spend`, `guide`,
+`setup`), and [AGENTS.md](AGENTS.md) is read automatically by Claude Code, Codex,
+and OpenCode.
+
+## Status and troubleshooting
+
+```sh
+vector status
+vector doctor
+vector doctor --json
+```
+
+`status` summarizes the gateway, harness wiring, and spend. `doctor` inspects the
+same path without changing it and exits non-zero on a failed check. Vector stores
+configuration, logs, and telemetry under `~/.config/vector/`:
+
+```text
+~/.config/vector/config.yaml
+~/.config/vector/env            # secrets, mode 0600
+~/.config/vector/logs/gateway.log
+~/.config/vector/telemetry/     # JSONL request metadata
+```
+
+| Symptom | Fix |
+|---|---|
+| `unresolved env vars` | `vector env set VAR value` |
+| gateway not reachable | `vector up`, then `vector status` |
+| harness shows `off` | `vector claude on` / `vector codex on` |
+| requests return `501` | provider lacks an Anthropic shape; set `anthropic_base_url` or use OpenRouter |
+| Codex children still use the plan | confirm `vector codex on`, then run `codex --profile vector` |
 
 ## Configuration
 
-`~/.config/vector/config.yaml` is the single source of truth. Providers are any
-OpenAI-compatible endpoint (OpenRouter, Baseten, Z.ai, DeepSeek, Moonshot, …),
-plus native Anthropic/OpenAI.
+Two files, both mode `0600`:
 
-```yaml
-providers:
-  - id: openrouter
-    type: openai_compatible
-    base_url: https://openrouter.ai/api/v1
-    anthropic_base_url: https://openrouter.ai/api/v1   # Anthropic Messages skin
-    api_key: ${OPENROUTER_API_KEY}
+| File | Holds |
+|---|---|
+| `~/.config/vector/config.yaml` | providers, models, roles, policies, budget |
+| `~/.config/vector/env` | secrets referenced as `${VAR}` |
 
-models:
-  - id: openrouter/z-ai/glm-5.3-flash
-    tags: [cheap, fast, tools]
-    price: {in: 0.15, out: 0.50}
-
-roles:
-  worker:
-    tier: cheap
-    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash]
-
-policies:
-  - match: {traffic: primary}
-    route: architect
-  - match: {traffic: subagent}
-    route: worker
-
-budget:
-  daily_usd: 25
-  on_breach: downgrade        # downgrade | queue | stop
-```
-
-Precedence: an explicit registry model wins; then an explicit role hint
-(`vector-*` or `X-Vector-Role`); then policy; then native passthrough.
-
-## Quota protection
-
-- Subagent routes can never resolve to a plan credential unless a policy says so.
-- Per-provider and global daily spend ceilings, with `downgrade`/`queue`/`stop`.
-- Transparent fallback on 5xx/429/transport error to the next candidate.
-- Per-harness concurrency caps.
-- Local JSONL telemetry, with `vector spend` reporting off-plan share.
-
-## CLI
-
-```
-vector init [--key K] [--wire claude,codex] [--yes]
-vector up | down | restart | status | doctor
-vector serve [--verbose]
-vector config init | show | path | get | set | validate
-vector env path | list | set | unset
-vector service install | uninstall | status
-vector claude | codex | opencode  on | off | status
-vector models [--json]
-vector spend [--since 24h] [--json]
-```
-
-## Development
+Prefer the typed commands over direct edits; they validate as they write:
 
 ```sh
-make test     # unit tests
-make race     # race detector
-make vet      # go vet
-make build    # bin/vector
+vector config path
+vector config get budget.daily_usd
+vector config set budget.daily_usd 10
+vector env set OPENROUTER_API_KEY sk-or-...
+vector env list                 # values redacted
+vector config validate
 ```
 
-Layout:
+Providers are any OpenAI-compatible endpoint plus native Anthropic/OpenAI.
+Roles are ordered preference lists. Daily and per-provider budget ceilings,
+concurrency caps, and a fallback chain are all configurable. See
+[docs/configuration.md](docs/configuration.md) for every field, or
+`vector schema` for the machine-readable schema.
 
+## Upgrade
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
+vector restart
+vector doctor
 ```
-cmd/vector            entry point
-internal/config       load, validate, defaults
-internal/llm          canonical provider-neutral types
-internal/registry     model registry (capabilities, price)
-internal/router       role resolution, policies, fallbacks
-internal/provider     upstream request building, auth, streaming copy
-internal/gateway      HTTP surface for the three wire shapes
-internal/budget       spend ceilings and concurrency
-internal/telemetry    JSONL request store
-internal/harness      Claude Code / Codex / OpenCode adapters
+
+With Go: `go install github.com/anunay999/vector/cmd/vector@latest`, then
+`vector restart`.
+
+## Uninstall
+
+```sh
+vector service uninstall
+vector down
+vector claude off ; vector codex off ; vector opencode off
+rm -rf ~/.config/vector
+rm -f ~/.local/bin/vector
 ```
+
+Uninstall never removes your harness credentials or provider API keys from the
+providers themselves.
+
+## Privacy and trust
+
+Vector binds its gateway to the local loopback interface. It receives harness
+requests and credentials because it is in the selected request path. Request
+content leaves the machine only for the upstream chosen by the active routing
+policy: native credentials go only to their matching native provider, and
+configured provider keys go only to that provider.
+
+Local telemetry contains request metadata — models, provider, role, token
+counts, cost, latency, and status — not prompts, responses, headers, or request
+bodies. Disable it with `telemetry.enabled: false`. The `/admin/status` endpoint
+is restricted to loopback even when the data plane is exposed. Secrets live only
+in `~/.config/vector/env` (mode `0600`) and are resolved from the environment
+first, then that file.
+
+## Build and test
+
+```sh
+make build      # bin/vector
+make test       # go test ./...
+make race       # go test -race ./...
+make vet
+make hooks      # install local git hooks
+```
+
+Layout and conventions are in [AGENTS.md](AGENTS.md). The design is documented in
+[docs/architecture-proposal.md](docs/architecture-proposal.md).
 
 ## Contributing
 
 The default branch is protected: no pull request can merge without an approving
 review from the code owner (`@anunay999`), enforced via
 [`.github/CODEOWNERS`](.github/CODEOWNERS) and GitHub branch protection. Install
-the local hooks for fast feedback:
+the local hooks for fast feedback with `make hooks`. See
+[docs/governance.md](docs/governance.md). Never commit secrets.
 
-```sh
-make hooks
-```
+## License
 
-See [docs/governance.md](docs/governance.md). Never commit secrets.
-
-## Status
-
-Phase‑0 POC is working and tested: shape-aware routing, model rewrite, configured
-vs inbound credential selection, role agents, Codex profile overlay, budget
-accounting, fallback retries, and telemetry.
-
-Not yet implemented:
-
-- Shape **translation** (Anthropic ↔ OpenAI Chat/Responses) for providers that
-  don't expose an Anthropic-compatible endpoint. Requests that need it return
-  `501` rather than being sent incorrectly.
-- The benchmark-driven model-intelligence registry and learned routing.
-- A status board and Homebrew tap.
-
-See `docs/architecture-proposal.md` for the full design.
+Vector is available under the [Apache License 2.0](LICENSE).
