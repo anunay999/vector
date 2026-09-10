@@ -305,6 +305,27 @@ vector spend --since 168h                    # aggregate
 It records metadata only — never prompts, responses, headers, or bodies. Disable
 it with `telemetry.enabled: false`; set `telemetry.dir` to relocate it.
 
+## Applying changes
+
+Config and model edits apply **live**: the running gateway reloads on `SIGHUP`,
+and `vector config set` / `unset` and `vector models set` / `use` / `remove` send
+it automatically. No restart, no reinstall — in-flight requests keep their
+snapshot.
+
+```sh
+vector models use worker openrouter/deepseek/deepseek-v4.1-flash
+vector config set budget.daily_usd 15
+```
+
+Only a **new binary** requires an update:
+
+```sh
+vector upgrade      # re-runs the installer, then restarts the service
+```
+
+If the gateway is not running (e.g. `vector serve` in the foreground), edits take
+effect the next time it starts.
+
 ## Verify
 
 ```sh

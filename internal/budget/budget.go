@@ -94,6 +94,28 @@ func (g *Governor) Check(provider string, estCost float64) Decision {
 	}
 }
 
+// Reconfigure updates the spend ceilings and breach policy without resetting
+// today's spend, and resizes per-harness concurrency limits. Used on hot reload.
+func (g *Governor) Reconfigure(dailyCap float64, perProvider map[string]float64, onBreach string, maxConcurrentPerHarness int) {
+	g.mu.Lock()
+	g.dailyCap = dailyCap
+	caps := make(map[string]float64, len(perProvider))
+	for k, v := range perProvider {
+		caps[k] = v
+	}
+	g.perProvider = caps
+	if onBreach != "" {
+		g.onBreach = onBreach
+	}
+	g.mu.Unlock()
+
+	if maxConcurrentPerHarness > 0 {
+		g.semMu.Lock()
+		g.maxConc = maxConcurrentPerHarness
+		g.semMu.Unlock()
+	}
+}
+
 // Commit records actual spend after a request completes.
 func (g *Governor) Commit(provider string, cost float64) {
 	if cost <= 0 {

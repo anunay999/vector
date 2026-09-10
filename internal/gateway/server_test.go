@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/anunay999/vector/internal/budget"
@@ -212,6 +213,70 @@ func TestFallbackOnCreditError(t *testing.T) {
 	}
 	if seen[len(seen)-1] == "claude-opus-5" {
 		t.Fatalf("did not fall through on credit error: %v", seen)
+	}
+}
+
+// TestHotReloadSwapsRouting verifies Apply installs a new config without a
+// restart, so model/config changes take effect live.
+func TestHotReloadSwapsRouting(t *testing.T) {
+	var mu sync.Mutex
+	var last string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var env map[string]json.RawMessage
+		_ = json.Unmarshal(body, &env)
+		var model string
+		_ = json.Unmarshal(env["model"], &model)
+		mu.Lock()
+		last = model
+		mu.Unlock()
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	base := config.Default()
+	base.Providers = []config.Provider{
+		{ID: "openrouter", Type: config.ProviderOpenAICompatible, BaseURL: upstream.URL, AnthropicBaseURL: upstream.URL, APIKey: "k"},
+		{ID: "anthropic-native", Type: config.ProviderAnthropic, BaseURL: upstream.URL, DefaultModel: "claude-opus-5", Native: true},
+		{ID: "openai-native", Type: config.ProviderOpenAIResponses, BaseURL: upstream.URL, DefaultModel: "gpt-6-astra", Native: true},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(base, telemetry.New(t.TempDir(), true), budget.New(0, nil, "downgrade", 4), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	post := func() string {
+		body := `{"model":"vector-worker","messages":[{"role":"user","content":"hi"}]}`
+		resp, err := http.Post(ts.URL+"/v1/messages", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		resp.Body.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		return last
+	}
+
+	if got := post(); got != "z-ai/glm-5.3-flash" {
+		t.Fatalf("initial model = %q, want glm-5.3-flash", got)
+	}
+
+	// Build a new config with a different worker preference and apply it live.
+	next := *base
+	roles := map[string]config.Role{}
+	for k, v := range base.Roles {
+		roles[k] = v
+	}
+	roles["worker"] = config.Role{Tier: "cheap", Prefer: []string{"openrouter/deepseek/deepseek-v4.1-flash"}}
+	next.Roles = roles
+	if err := srv.Apply(&next); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := post(); got != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("after reload model = %q, want deepseek-v4.1-flash", got)
 	}
 }
 

@@ -60,6 +60,17 @@ func Uninstall() (Status, error) {
 	}
 }
 
+// Restart reloads the installed user service so it picks up a new binary.
+func Restart() error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), label))
+	case "linux":
+		return run("systemctl", "--user", "restart", "vector.service")
+	}
+	return fmt.Errorf("service restart is not supported on %s", runtime.GOOS)
+}
+
 // Status reports whether the service is installed and active.
 func Current() Status {
 	switch runtime.GOOS {

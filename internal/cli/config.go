@@ -103,6 +103,36 @@ func newConfigCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("%s = %s\n", args[0], args[1])
+			reloadGateway()
+			return nil
+		},
+	}
+
+	unsetCmd := &cobra.Command{
+		Use:   "unset <path>",
+		Short: "Remove a key by dotted path",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := configPath()
+			m, err := loadRawConfigMap(path)
+			if err != nil {
+				return err
+			}
+			if err := unsetPath(m, strings.Split(args[0], ".")); err != nil {
+				return err
+			}
+			data, err := yaml.Marshal(m)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
+				return err
+			}
+			if err := os.Rename(path+".tmp", path); err != nil {
+				return err
+			}
+			fmt.Printf("unset %s\n", args[0])
+			reloadGateway()
 			return nil
 		},
 	}
@@ -125,7 +155,7 @@ func newConfigCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(initCmd, showCmd, pathCmd, getCmd, setCmd, validateCmd)
+	cmd.AddCommand(initCmd, showCmd, pathCmd, getCmd, setCmd, unsetCmd, validateCmd)
 	return cmd
 }
 
@@ -211,6 +241,41 @@ func setPath(m map[string]any, path []string, value any) error {
 			if last {
 				node[idx] = value
 				return nil
+			}
+			cur = node[idx]
+		default:
+			return fmt.Errorf("cannot descend into %q", p)
+		}
+	}
+	return nil
+}
+
+// unsetPath removes a key by dotted path. List indices are not supported.
+func unsetPath(m map[string]any, path []string) error {
+	if len(path) == 0 {
+		return fmt.Errorf("empty path")
+	}
+	var cur any = m
+	for i, p := range path {
+		last := i == len(path)-1
+		switch node := cur.(type) {
+		case map[string]any:
+			if last {
+				delete(node, p)
+				return nil
+			}
+			next, ok := node[p]
+			if !ok {
+				return fmt.Errorf("no such key: %s", strings.Join(path, "."))
+			}
+			cur = next
+		case []any:
+			if last {
+				return fmt.Errorf("cannot unset a list index; edit the file directly")
+			}
+			idx, err := strconv.Atoi(p)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return fmt.Errorf("bad list index %q", p)
 			}
 			cur = node[idx]
 		default:

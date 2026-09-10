@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/anunay999/vector/internal/budget"
@@ -31,15 +32,32 @@ const (
 	captureBytes = 1 << 20  // per-response capture cap for usage extraction
 )
 
-// Server is the gateway HTTP handler.
-type Server struct {
+// runtime is the swappable set of routing components. Reload builds a new one
+// and installs it atomically, so in-flight requests keep their snapshot.
+type runtime struct {
 	cfg    *config.Config
 	reg    *registry.Registry
 	router *router.Router
 	rec    *telemetry.Recorder
-	gov    *budget.Governor
 	client *provider.Client
-	log    *slog.Logger
+}
+
+// Server is the gateway HTTP handler.
+type Server struct {
+	rt  atomic.Pointer[runtime]
+	gov *budget.Governor
+	log *slog.Logger
+}
+
+func buildRuntime(cfg *config.Config, rec *telemetry.Recorder) *runtime {
+	reg := registry.New(cfg)
+	return &runtime{
+		cfg:    cfg,
+		reg:    reg,
+		router: router.New(cfg, reg),
+		rec:    rec,
+		client: provider.NewClient(cfg.Fallback.TTFTTimeout),
+	}
 }
 
 // New constructs a Server. The registry is derived from cfg.
@@ -47,16 +65,37 @@ func New(cfg *config.Config, rec *telemetry.Recorder, gov *budget.Governor, log 
 	if log == nil {
 		log = slog.Default()
 	}
-	reg := registry.New(cfg)
-	return &Server{
-		cfg:    cfg,
-		reg:    reg,
-		router: router.New(cfg, reg),
-		rec:    rec,
-		gov:    gov,
-		client: provider.NewClient(cfg.Fallback.TTFTTimeout),
-		log:    log,
+	s := &Server{gov: gov, log: log}
+	s.rt.Store(buildRuntime(cfg, rec))
+	return s
+}
+
+func (s *Server) current() *runtime { return s.rt.Load() }
+
+// Apply installs a new configuration without dropping the gateway.
+func (s *Server) Apply(cfg *config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
 	}
+	rec := telemetry.New(cfg.TelemetryDir(), cfg.Telemetry.Enabled)
+	s.rt.Store(buildRuntime(cfg, rec))
+	s.gov.Reconfigure(cfg.Budget.DailyUSD, cfg.Budget.PerProvider, cfg.Budget.OnBreach, cfg.Budget.MaxConcurrentSubagentsPerHarness)
+	s.log.Info("config reloaded", "routing", cfg.RoutingEnabled,
+		"providers", len(cfg.Providers), "models", len(cfg.Models), "roles", len(cfg.Roles))
+	return nil
+}
+
+// Reload re-reads the config from disk and applies it.
+func (s *Server) Reload() error {
+	path := s.current().cfg.Path()
+	if path == "" {
+		return errors.New("gateway: cannot reload, config has no path")
+	}
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		return err
+	}
+	return s.Apply(cfg)
 }
 
 // Handler returns the server as an http.Handler.
@@ -161,6 +200,7 @@ func (e envelope) estimateOutput() int {
 }
 
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, nativeOnly bool) {
+	rt := s.rt.Load()
 	start := time.Now()
 	requestID := newID()
 	harness := detectHarness(r)
@@ -195,9 +235,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 
 	var primary router.Decision
 	if nativeOnly {
-		primary, err = s.router.NativePassthrough(input)
+		primary, err = rt.router.NativePassthrough(input)
 	} else {
-		primary, err = s.router.Route(input)
+		primary, err = rt.router.Route(input)
 	}
 	if err != nil {
 		s.log.Warn("routing failed", "err", err, "model", env.Model)
@@ -295,14 +335,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			continue
 		}
 
-		resp, derr := s.client.Do(upReq)
+		resp, derr := rt.client.Do(upReq)
 		if derr != nil {
 			lastErr = derr
 			s.log.Warn("upstream error", "provider", dec.Provider.ID, "err", derr)
 			rec.Status = http.StatusBadGateway
 			rec.Error = derr.Error()
 			rec.LatencyMS = time.Since(start).Milliseconds()
-			_ = s.rec.Record(rec)
+			_ = rt.rec.Record(rec)
 			continue
 		}
 
@@ -320,7 +360,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 				rec.Status = resp.StatusCode
 				rec.Error = lastErr.Error()
 				rec.LatencyMS = time.Since(start).Milliseconds()
-				_ = s.rec.Record(rec)
+				_ = rt.rec.Record(rec)
 				s.log.Warn("falling back", "provider", dec.Provider.ID, "status", resp.StatusCode)
 				continue
 			}
@@ -330,7 +370,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			rec.Status = resp.StatusCode
 			rec.Error = truncate(string(peek), 300)
 			rec.LatencyMS = time.Since(start).Milliseconds()
-			_ = s.rec.Record(rec)
+			_ = rt.rec.Record(rec)
 			return
 		}
 
@@ -351,7 +391,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			s.log.Debug("stream copy ended", "err", copyErr)
 		}
 		rec.LatencyMS = time.Since(start).Milliseconds()
-		_ = s.rec.Record(rec)
+		_ = rt.rec.Record(rec)
 		return
 	}
 
@@ -374,7 +414,7 @@ func (s *Server) finish(w http.ResponseWriter, shape llm.Shape, rec telemetry.Re
 	if rec.LatencyMS == 0 {
 		rec.LatencyMS = time.Since(rec.Time).Milliseconds()
 	}
-	_ = s.rec.Record(rec)
+	_ = s.rt.Load().rec.Record(rec)
 }
 
 // creditMarkers indicate an upstream plan is out of credits or quota, which
@@ -432,22 +472,24 @@ func rewriteModel(body []byte, model string) ([]byte, error) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	rt := s.rt.Load()
 	w.Header().Set("content-type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "ok",
-		"routing": s.cfg.RoutingEnabled,
+		"routing": rt.cfg.RoutingEnabled,
 	})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	rt := s.rt.Load()
 	total, per := s.gov.Spend()
 	w.Header().Set("content-type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"routing_enabled": s.cfg.RoutingEnabled,
+		"routing_enabled": rt.cfg.RoutingEnabled,
 		"spend_usd":       total,
 		"per_provider":    per,
-		"roles":           s.cfg.RoleNames(),
-		"providers":       s.cfg.ProviderIDs(),
+		"roles":           rt.cfg.RoleNames(),
+		"providers":       rt.cfg.ProviderIDs(),
 	})
 }
 
@@ -465,12 +507,12 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		OwnedBy     string `json:"owned_by"`
 	}
 	var data []model
-	for _, name := range s.cfg.RoleNames() {
+	for _, name := range s.rt.Load().cfg.RoleNames() {
 		id := "vector-" + name
 		data = append(data, model{ID: id, Type: "model", Object: "model", DisplayName: id, Name: id, OwnedBy: "vector"})
 	}
 	data = append(data, model{ID: "vector-auto", Type: "model", Object: "model", DisplayName: "vector-auto", Name: "vector-auto", OwnedBy: "vector"})
-	for _, e := range s.reg.Entries() {
+	for _, e := range s.rt.Load().reg.Entries() {
 		data = append(data, model{ID: e.ID, Type: "model", Object: "model", DisplayName: e.ID, Name: e.ID, OwnedBy: e.ProviderID})
 	}
 	first, last := "", ""

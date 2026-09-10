@@ -288,12 +288,19 @@ Two files, both mode `0600`:
 | `~/.config/vector/config.yaml` | providers, models, roles, policies, budget |
 | `~/.config/vector/env` | secrets referenced as `${VAR}` |
 
-Prefer the typed commands over direct edits; they validate as they write:
+Prefer the typed commands over direct edits; they validate as they write and
+**reload the running gateway automatically** (SIGHUP) — no restart, no reinstall:
 
 ```sh
 vector config path
 vector config get budget.daily_usd
 vector config set budget.daily_usd 10
+vector config unset budget.per_provider
+
+vector models use worker openrouter/deepseek/deepseek-v4.1-flash   # change a role live
+vector models set openrouter/z-ai/glm-5.3 --in 1.007 --out 3.41    # add/update a model
+vector models remove openrouter/old/model
+
 vector env set OPENROUTER_API_KEY sk-or-...
 vector env list                 # values redacted
 vector config validate
@@ -315,13 +322,17 @@ error, and you can force a cheap planner by reordering the `architect` role. See
 ```text
 vector init | setup | guide | schema
 vector up | down | restart | serve | status | doctor
-vector config init | show | path | get | set | validate
+vector config init | show | path | get | set | unset | validate
 vector env path | list | set | unset
 vector service install | uninstall | status
+vector upgrade
 vector claude | codex | opencode   on | off | status
 vector agents [--json]
 vector claude | codex   agents | route <agent> [role]
 vector models [--json]
+vector models set <provider/model> [--tags …] [--context N] [--in F] [--out F]
+vector models remove <provider/model>
+vector models use <role> <target> [--append]
 vector top [--once] [--since 24h] [--interval 1s]
 vector logs [--follow] [--lines N] [--path]
 vector telemetry [--since 24h] [--json] [--follow] [--role R] [--provider P]
@@ -331,13 +342,20 @@ vector spend [--since 24h] [--json]
 ## Upgrade
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
-vector restart
+vector upgrade      # re-runs the installer, then restarts the service
 vector doctor
 ```
 
-With Go: `go install github.com/anunay999/vector/cmd/vector@latest`, then
-`vector restart`.
+`vector upgrade` pulls the current release (or `go install`s when no release is
+published) and restarts the login service automatically. To do it by hand:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
+vector restart
+```
+
+Config-only changes never need this — `vector config set` and `vector models use`
+reload the running gateway in place.
 
 ## Uninstall
 

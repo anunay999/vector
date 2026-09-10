@@ -56,11 +56,18 @@ vector logs [--follow]         # gateway log
 vector telemetry [--json]      # raw request records
 vector agents [--json]         # list harness agents + whether routed
 vector claude|codex route <agent> [role]  # route an existing agent
-vector config get|set <path>   # edit config by dotted path
-vector env set|list|unset      # manage secrets (list redacts)
-vector up|down|restart|serve   # gateway lifecycle
-vector service install|status  # launchd / systemd --user
+vector config get|set|unset <path>  # edit config by dotted path (reloads live)
+vector models use <role> <target>    # change a role's model (reloads live)
+vector models set|remove <id>        # edit the registry (reloads live)
+vector upgrade                       # update the binary + restart the service
+vector env set|list|unset            # manage secrets (list redacts)
+vector up|down|restart|serve         # gateway lifecycle
+vector service install|status        # launchd / systemd --user
 ```
+
+Config and model edits apply **live** — the running gateway reloads on `SIGHUP`
+(sent automatically by the commands above); no restart and no reinstall. Only a
+new binary needs `vector upgrade`.
 
 ## How configuration works (short version)
 

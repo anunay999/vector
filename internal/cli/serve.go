@@ -38,6 +38,24 @@ func newServeCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
+			// Hot reload: SIGHUP re-reads the config and swaps routing without
+			// dropping the gateway or in-flight requests.
+			hup := make(chan os.Signal, 1)
+			signal.Notify(hup, syscall.SIGHUP)
+			defer signal.Stop(hup)
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-hup:
+						if rerr := srv.Reload(); rerr != nil {
+							logger.Warn("config reload failed", "err", rerr)
+						}
+					}
+				}
+			}()
+
 			if err := writePID(cfg); err != nil {
 				logger.Warn("could not write pidfile", "err", err)
 			}
