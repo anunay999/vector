@@ -1,0 +1,9 @@
+.git
+.gitignore
+.github
+bin/
+docs/
+*.md
+!README.md
+.gitignore
+.DS_Store

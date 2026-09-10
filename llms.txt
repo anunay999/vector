@@ -1,0 +1,26 @@
+# vector
+
+> Intelligent subagent model router for any harness. Routes coding-agent
+> subagents to cheap models (GLM-5.3-Flash, DeepSeek-V4-Flash, Kimi-K3) while
+> keeping frontier planning on Claude and Codex subscriptions.
+
+## Docs
+
+- [AGENTS.md](./AGENTS.md): agent setup and operation (start here)
+- [docs/configuration.md](./docs/configuration.md): full configuration guide
+- [docs/install.md](./docs/install.md): install, service, Docker, CI
+- [docs/architecture-proposal.md](./docs/architecture-proposal.md): design
+
+## Self-describing
+
+```sh
+vector guide --json    # guide + live state
+vector schema          # config JSON Schema
+vector setup --json    # non-interactive one-shot setup
+```
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
+```

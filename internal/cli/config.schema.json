@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/anunay999/vector/config.schema.json",
+  "title": "vector configuration",
+  "description": "Configuration for the vector subagent model router. Secret values should be written as ${VAR} and stored in the env file.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "routing_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, all traffic is passed through to the native provider untouched."
+    },
+    "listen": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anthropic": { "type": "string", "examples": ["127.0.0.1:7331"] },
+        "openai": { "type": "string" },
+        "admin": { "type": "string" }
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "base_url"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+          "type": {
+            "enum": ["openai_compatible", "anthropic", "openai_responses"],
+            "description": "Protocol spoken upstream."
+          },
+          "base_url": { "type": "string", "description": "Upstream root. A /v1 segment is not duplicated on join." },
+          "anthropic_base_url": {
+            "type": "string",
+            "description": "Optional Anthropic Messages root on the same provider, so Anthropic-shaped requests skip translation (OpenRouter provides one)."
+          },
+          "api_key": { "type": "string", "description": "Literal or ${VAR}. Empty with native=true means use the inbound credential." },
+          "default_model": { "type": "string", "description": "Model used when a virtual role targets this native provider." },
+          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+          "native": { "type": "boolean", "description": "Forward the caller's Authorization/X-Api-Key (subscription passthrough)." }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[^/]+/.+$", "description": "<providerID>/<upstreamModel>" },
+          "tags": { "type": "array", "items": { "type": "string" }, "examples": [["cheap", "fast", "tools", "long_context", "vision", "reasoning"]] },
+          "context": { "type": "integer", "description": "Context window in tokens." },
+          "price": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "in": { "type": "number", "description": "USD per million input tokens." },
+              "out": { "type": "number", "description": "USD per million output tokens." }
+            }
+          }
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Logical delegation roles. Exposed to harnesses as vector-<role>.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prefer"],
+        "properties": {
+          "tier": { "enum": ["frontier", "smart", "cheap"], "default": "cheap" },
+          "primary": { "type": "boolean", "description": "True for planning roles; primary traffic does not consume a subagent concurrency slot." },
+          "prefer": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Ordered targets: another role, a registered model id, or a provider id."
+          },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route"],
+        "properties": {
+          "match": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "harness": { "type": "string", "examples": ["claude-code", "codex", "opencode"] },
+              "traffic": { "enum": ["primary", "subagent"] },
+              "complexity": { "type": "string" },
+              "model": { "type": "string", "description": "Exact match or trailing * glob." }
+            }
+          },
+          "route": { "type": "string", "description": "A role name, registered model id, or provider id." }
+        }
+      }
+    },
+    "complexity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_floor": { "type": "string", "description": "Role used for vector-auto." },
+        "signals": { "type": "array", "items": { "type": "string" } },
+        "cheap_classifier": { "type": "string" },
+        "escalate_on": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "daily_usd": { "type": "number", "minimum": 0 },
+        "per_provider": { "type": "object", "additionalProperties": { "type": "number" } },
+        "on_breach": { "enum": ["downgrade", "queue", "stop"], "default": "downgrade" },
+        "max_concurrent_subagents_per_harness": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cooldown": { "type": "string", "description": "Go duration string, e.g. 30s." },
+        "ttft_timeout": { "type": "string", "description": "Go duration string, e.g. 30s." },
+        "chain": { "type": "array", "items": { "type": "string" }, "description": "Roles tried in order after the primary on failure." }
+      }
+    },
+    "harnesses": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "subagent_model": { "type": "string" },
+          "profile": { "type": "string" }
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dir": { "type": "string" },
+        "retention_days": { "type": "integer", "minimum": 1 },
+        "enabled": { "type": "boolean" }
+      }
+    }
+  }
+}

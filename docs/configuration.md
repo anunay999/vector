@@ -1,0 +1,221 @@
+# Configuration
+
+Vector has two files. Everything else is derived.
+
+| File | Purpose | Permissions |
+|---|---|---|
+| `~/.config/vector/config.yaml` | providers, models, roles, policies, budget | `600` |
+| `~/.config/vector/env` | secrets referenced as `${VAR}` in the config | `600` |
+
+Override the directory with `VECTOR_CONFIG_DIR`. Find the active paths with:
+
+```sh
+vector config path
+vector env path
+```
+
+Edit by hand or with the CLI:
+
+```sh
+vector init                                   # guided setup
+vector config get budget.daily_usd
+vector config set budget.daily_usd 10
+vector config set providers.0.api_key '${OPENROUTER_API_KEY}'
+vector env set OPENROUTER_API_KEY sk-or-...
+vector env list                               # values redacted
+vector config validate
+```
+
+## The mental model
+
+A request arrives with a **model name**. Vector turns that into a
+**(provider, base URL, API key, upstream model)** triple:
+
+```
+request model ──► role? ──► provider preference list ──► provider
+   vector-worker     worker      [glm-flash, deepseek]     openrouter
+                                                          base_url=https://openrouter.ai/api/v1
+                                                          api_key=${OPENROUTER_API_KEY}
+                                                          model=z-ai/glm-5.3-flash
+```
+
+Precedence, strongest first:
+
+1. **Explicit registry model** — the request names `openrouter/z-ai/glm-5.3-flash`.
+2. **Explicit role hint** — the request names `vector-worker`, or sends
+   `X-Vector-Role: reviewer`.
+3. **Policy** — a `policies` rule matches the harness/traffic/model.
+4. **Native passthrough** — anything else goes to the native provider for the
+   wire shape, unchanged.
+
+## Providers
+
+Any OpenAI-compatible endpoint plus native Anthropic/OpenAI.
+
+```yaml
+providers:
+  - id: openrouter
+    type: openai_compatible          # openai_compatible | anthropic | openai_responses
+    base_url: https://openrouter.ai/api/v1
+    anthropic_base_url: https://openrouter.ai/api/v1   # optional Anthropic Messages skin
+    api_key: ${OPENROUTER_API_KEY}
+    headers:
+      HTTP-Referer: https://github.com/anunay999/vector
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Namespaced in models (`<id>/<model>`) and referenced by roles |
+| `type` | `openai_compatible`, `anthropic`, or `openai_responses` |
+| `base_url` | Upstream root; version segments are not duplicated when joined |
+| `anthropic_base_url` | Extra Anthropic-shape root so Anthropic requests skip translation |
+| `api_key` | Literal or `${VAR}`; empty and `native: true` means "use the inbound credential" |
+| `default_model` | Used when a virtual role targets a native provider (e.g. `vector-escalate`) |
+| `native` | Forward the caller's own Authorization/X-Api-Key (subscription passthrough) |
+| `headers` | Static headers merged into every upstream request |
+
+Common providers:
+
+```yaml
+  - {id: baseten,   type: openai_compatible, base_url: https://inference.baseten.co/v1, api_key: ${BASETEN_API_KEY}}
+  - {id: zai,       type: openai_compatible, base_url: https://api.z.ai/api/paas/v4,     api_key: ${ZAI_API_KEY}}
+  - {id: deepseek,  type: openai_compatible, base_url: https://api.deepseek.com/v1,      api_key: ${DEEPSEEK_API_KEY}}
+  - {id: moonshot,  type: openai_compatible, base_url: https://api.moonshot.ai/v1,       api_key: ${MOONSHOT_API_KEY}}
+  - {id: anthropic-native, type: anthropic,        base_url: https://api.anthropic.com, default_model: claude-opus-5, native: true}
+  - {id: openai-native,    type: openai_responses, base_url: https://api.openai.com/v1,  default_model: gpt-6-astra,  native: true}
+```
+
+## Models registry
+
+Register each routable model once. `id` is `<providerID>/<upstreamModel>`; the
+part after the first slash is sent upstream, so `openrouter/anthropic/claude-x`
+works.
+
+```yaml
+models:
+  - id: openrouter/z-ai/glm-5.3-flash
+    tags: [cheap, fast, tools, long_context]
+    context: 1310720
+    price: {in: 0.15, out: 0.50}      # USD per million tokens
+```
+
+`price` powers the cost estimate and budget; `tags` are used by the model
+registry to pick the cheapest model that satisfies a task.
+
+## Roles
+
+A role is a preference list. Vector walks it and takes the first target that can
+serve the request's wire shape.
+
+```yaml
+roles:
+  architect:                     # planning — stays on the subscription
+    tier: frontier
+    primary: true                # primary traffic never consumes a subagent slot
+    prefer: [anthropic-native, openai-native]
+  reviewer:
+    tier: smart
+    prefer: [openrouter/moonshotai/kimi-k3, openrouter/z-ai/glm-5.3]
+  worker:
+    tier: cheap
+    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash]
+  escalate:
+    tier: frontier
+    prefer: [anthropic-native, openai-native]
+```
+
+A `prefer` entry can be another role (chained), a registered model, or a
+provider id. Native provider entries use `default_model` when the incoming model
+is virtual.
+
+Roles are exposed to harnesses as virtual models: role `worker` → `vector-worker`
+(alias `vector/worker`). `vector-auto` resolves to `complexity.default_floor`.
+
+## Policies
+
+Policies are defaults applied when there is no explicit role hint. Empty fields
+are wildcards; `model` supports a trailing `*`.
+
+```yaml
+policies:
+  - {match: {traffic: primary},  route: architect}
+  - {match: {traffic: subagent}, route: worker}
+  - {match: {harness: codex, traffic: subagent}, route: reviewer}
+  - {match: {model: "vector-*"}, route: worker}
+```
+
+## Budget and fallback
+
+```yaml
+budget:
+  daily_usd: 25
+  per_provider: {openrouter: 20, deepseek: 5}
+  on_breach: downgrade              # downgrade | queue | stop
+  max_concurrent_subagents_per_harness: 8
+
+fallback:
+  cooldown: 30s
+  ttft_timeout: 30s
+  chain: [worker, reviewer, escalate]
+```
+
+- `downgrade` tries the cheaper fallback chain before the frontier choice.
+- `queue` returns `429` with `Retry-After`; `stop` rejects.
+- On upstream `5xx`/`429`/transport error, Vector retries the next candidate in
+  `chain` transparently.
+- Native (subscription) providers have no `price`, so they never count toward
+  the dollar ceiling — they consume quota, which is the whole point.
+
+## Secrets
+
+Never put keys in `config.yaml`. Reference them:
+
+```yaml
+api_key: ${OPENROUTER_API_KEY}
+```
+
+Resolution order: process environment first, then `~/.config/vector/env`. Store
+secrets privately:
+
+```sh
+vector env set OPENROUTER_API_KEY sk-or-...
+chmod 600 ~/.config/vector/env
+vector env list          # shows OPENROUTER_API_KEY=sk-or-…abcd
+```
+
+## Harnesses
+
+```yaml
+harnesses:
+  claude-code: {enabled: true, subagent_model: vector-worker}
+  codex:       {enabled: true, profile: vector}
+  opencode:    {enabled: true}
+
+telemetry: {dir: ~/.config/vector/telemetry, retention_days: 90, enabled: true}
+```
+
+## Recipes
+
+**OpenRouter-first (default).** One key routes every subagent to the cheap pool;
+the planner passes through to native Anthropic with your subscription.
+
+**Direct providers (no aggregator).** Point Claude Code subagents at Z.ai or
+Moonshot directly. Claude Code needs an Anthropic-shaped target; set
+`anthropic_base_url` if the provider offers one, otherwise translation is
+required (not yet implemented) and the request returns `501`.
+
+**Baseten for the manager.** Add Baseten's OpenAI-compatible endpoint as a
+provider and put a `baseten/...` model in the `lead` role, so medium work runs on
+Baseten while hard work escalates to native Claude.
+
+**CI / headless.** `vector serve` in a container, keys from environment
+variables, `daily_usd` for a hard ceiling, `on_breach: stop`.
+
+## Verify
+
+```sh
+vector config validate
+vector doctor
+vector models
+vector spend --since 24h
+```
