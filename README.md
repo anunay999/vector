@@ -261,8 +261,10 @@ Layout and conventions are in [AGENTS.md](AGENTS.md). The design is documented i
 
 The default branch is protected: no pull request can merge without an approving
 review from the code owner (`@anunay999`), enforced via
-[`.github/CODEOWNERS`](.github/CODEOWNERS) and GitHub branch protection. Install
-the local hooks for fast feedback with `make hooks`. See
+[`.github/CODEOWNERS`](.github/CODEOWNERS) and GitHub branch protection. Every PR
+must also pass the required status checks — `fmt`, `tidy`, `vet`, `build`,
+`test`, `lint`, `vuln`, `shellcheck`, and `selfcheck`; CodeQL runs as an advisory
+check. Install the local hooks for fast feedback with `make hooks`. See
 [docs/governance.md](docs/governance.md). Never commit secrets.
 
 ## License

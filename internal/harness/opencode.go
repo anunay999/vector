@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anunay999/vector/internal/config"
 )
@@ -112,11 +113,9 @@ func (c *OpenCode) Disable() (Report, error) {
 		delete(providers, "vector")
 	}
 	agents, _ := m["agent"].(map[string]any)
-	if agents != nil {
-		for name := range agents {
-			if len(name) > len("vector-") && name[:len("vector-")] == "vector-" {
-				delete(agents, name)
-			}
+	for name := range agents {
+		if strings.HasPrefix(name, "vector-") {
+			delete(agents, name)
 		}
 	}
 	if err := writeJSONMap(c.configPath(), m); err != nil {

@@ -5,13 +5,150 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  fmt:
+    name: fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.x"
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l internal cmd)
+          if [ -n "$out" ]; then
+            echo "these files are not gofmt-clean:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+
+  tidy:
+    name: tidy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - name: go mod tidy is clean
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  vet:
+    name: vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
       - run: go vet ./...
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - name: compile (host)
+        run: go build ./...
+      - name: cross-compile
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            echo "building ${target}"
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./...
+          done
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
       - run: go test -race ./...
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+
+  vuln:
+    name: vuln
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck scripts
+        run: shellcheck --severity=warning --shell=sh install.sh .githooks/pre-commit .githooks/commit-msg .githooks/pre-push
+
+  selfcheck:
+    name: selfcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+      - name: build binary
+        run: go build -o /tmp/vector ./cmd/vector
+      - name: exercise the CLI end to end
+        run: |
+          set -euo pipefail
+          export VECTOR_CONFIG_DIR="$(mktemp -d)"
+          /tmp/vector config init
+          /tmp/vector config validate
+          /tmp/vector schema | python3 -c 'import json,sys; json.load(sys.stdin)'
+          /tmp/vector guide --json | python3 -c 'import json,sys; json.load(sys.stdin)'
+          /tmp/vector setup --key sk-or-test --wire none --json \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"], d'
+          /tmp/vector config set budget.daily_usd 10
+          test "$(/tmp/vector config get budget.daily_usd)" = "10"
+          /tmp/vector models --json | python3 -c 'import json,sys; json.load(sys.stdin)'
