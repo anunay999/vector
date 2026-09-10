@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		newSpendCmd(),
 		newTelemetryCmd(),
 		newLogsCmd(),
+		newTopCmd(),
 		newDoctorCmd(),
 	)
 	return root

@@ -182,6 +182,8 @@ vector status
 vector doctor
 vector doctor --json
 
+vector top                       # live dashboard (q quit, p pause, r refresh)
+vector top --once                # a single frame
 vector logs                      # tail the gateway log
 vector logs --follow             # stream it
 vector logs --path               # just print the path
