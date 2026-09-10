@@ -25,37 +25,30 @@ type Agent struct {
 // AgentManager is implemented by adapters that expose per-agent model routing.
 type AgentManager interface {
 	Agents() ([]Agent, error)
-	SetAgentModel(name, target string) error
+	// SetAgentModel points an agent at a concrete model. provider is used by
+	// harnesses that select one (Codex) and ignored otherwise.
+	SetAgentModel(name, model, provider string) error
 }
 
-// VirtualTarget normalizes a user target into a harness-appropriate model and
-// (for Codex) provider. A bare role name like "worker" becomes the virtual
-// model; a full "provider/model" id is passed through.
-func VirtualTarget(harness, target string) (model, provider string, err error) {
-	t := strings.TrimSpace(target)
-	if t == "" {
+// VirtualModel converts a role name (or an already-virtual target) into the
+// harness-specific virtual model id for that role. Raw model ids are handled by
+// the caller, not here.
+func VirtualModel(harness, target string) (model, provider string, err error) {
+	role := strings.TrimSpace(target)
+	switch {
+	case strings.HasPrefix(role, "vector/"):
+		role = strings.TrimPrefix(role, "vector/")
+	case strings.HasPrefix(role, "vector-"):
+		role = strings.TrimPrefix(role, "vector-")
+	}
+	if role == "" {
 		return "", "", fmt.Errorf("empty target")
 	}
 	switch harness {
 	case "claude-code":
-		if strings.HasPrefix(t, "vector/") {
-			t = "vector-" + strings.TrimPrefix(t, "vector/")
-		} else if !strings.HasPrefix(t, "vector-") && !strings.Contains(t, "/") {
-			t = "vector-" + t
-		}
-		return t, "", nil
+		return "vector-" + role, "", nil
 	case "codex":
-		switch {
-		case strings.HasPrefix(t, "vector-"):
-			return "vector/" + strings.TrimPrefix(t, "vector-"), "vector", nil
-		case strings.HasPrefix(t, "vector/"):
-			return t, "vector", nil
-		case strings.Contains(t, "/"):
-			pid, _, _ := strings.Cut(t, "/")
-			return t, pid, nil
-		default:
-			return "vector/" + t, "vector", nil
-		}
+		return "vector/" + role, "vector", nil
 	}
 	return "", "", fmt.Errorf("agent routing is not supported for %s", harness)
 }

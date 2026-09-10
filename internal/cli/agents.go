@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/anunay999/vector/internal/config"
@@ -85,33 +86,51 @@ func newHarnessAgentsCmd(short string, mgr func(*config.Config) harness.AgentMan
 	return cmd
 }
 
-// newHarnessRouteCmd points one agent (or all) at a virtual model.
-func newHarnessRouteCmd(short string, mgr func(*config.Config) harness.AgentManager) *cobra.Command {
+// newHarnessRouteCmd points an agent at a model. The target is optional: when
+// omitted it is the role of the same name, so `route scout` routes the scout
+// agent to the scout role.
+func newHarnessRouteCmd(harnessName, short string, mgr func(*config.Config) harness.AgentManager) *cobra.Command {
 	var all, dryRun bool
+	var roleFlag, modelFlag string
 	cmd := &cobra.Command{
-		Use:   "route <agent> <target> | route --all <target>",
+		Use:   "route <agent> [role] | route --all [role]",
 		Short: short,
-		Long: short + "\n\nA target is a role name (worker), a virtual model\n" +
-			"(vector-worker / vector/worker), or a provider/model id.",
-		Args: cobra.RangeArgs(1, 2),
+		Long: short + "\n\nWith no target, an agent is routed to the role of the same\n" +
+			"name. A target is a role (worker), a virtual model (vector-worker), or an\n" +
+			"explicit provider/model id (openrouter/z-ai/glm-5.3-flash).",
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
 				return err
 			}
 			m := mgr(cfg)
-			var name, target string
-			if len(args) == 2 {
-				name, target = args[0], args[1]
-			} else if all {
-				target = args[0]
-			} else {
-				return fmt.Errorf("usage: route <agent> <target>, or route --all <target>")
+
+			if len(args) == 0 && !all {
+				return fmt.Errorf("usage: route <agent> [role], or route --all [role]")
+			}
+			if all && len(args) == 0 && roleFlag == "" && modelFlag == "" {
+				// route --all with no target: each agent to its same-named role.
 			}
 
-			names := []string{name}
+			// Resolve the explicit target, if any.
+			explicit := ""
+			switch {
+			case modelFlag != "":
+				explicit = modelFlag
+			case roleFlag != "":
+				explicit = roleFlag
+			case len(args) == 2:
+				explicit = args[1]
+			}
+			if roleFlag != "" {
+				if _, ok := cfg.Roles[roleFlag]; !ok {
+					return fmt.Errorf("role %q is not configured (roles: %s)", roleFlag, strings.Join(cfg.RoleNames(), ", "))
+				}
+			}
+
+			var names []string
 			if all {
-				names = nil
 				list, err := m.Agents()
 				if err != nil {
 					return err
@@ -121,23 +140,77 @@ func newHarnessRouteCmd(short string, mgr func(*config.Config) harness.AgentMana
 						names = append(names, a.Name)
 					}
 				}
-			}
-			for _, n := range names {
-				if dryRun {
-					fmt.Printf("would route %s -> %s\n", n, target)
-					continue
+				if len(names) == 0 {
+					fmt.Println("no non-managed agents to route")
+					return nil
 				}
-				if err := m.SetAgentModel(n, target); err != nil {
+			} else {
+				names = []string{args[0]}
+			}
+
+			for _, name := range names {
+				target := explicit
+				if target == "" {
+					if _, ok := cfg.Roles[name]; !ok {
+						msg := fmt.Sprintf("%q is not a configured role", name)
+						if all {
+							fmt.Printf("skip %s: %s (pass a target)\n", name, msg)
+							continue
+						}
+						return fmt.Errorf("%s; pass a target or --model <provider/model>", msg)
+					}
+					target = name
+				}
+				model, provider, err := resolveAgentModel(cfg, harnessName, target)
+				if err != nil {
 					return err
 				}
-				fmt.Printf("routed %s -> %s\n", n, target)
+				if dryRun {
+					fmt.Printf("would route %s -> %s\n", name, model)
+					continue
+				}
+				if err := m.SetAgentModel(name, model, provider); err != nil {
+					if all {
+						fmt.Printf("skip %s: %v\n", name, err)
+						continue
+					}
+					return err
+				}
+				fmt.Printf("routed %s -> %s\n", name, model)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "apply to every non-managed agent")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would change")
+	cmd.Flags().StringVar(&roleFlag, "role", "", "route to this role")
+	cmd.Flags().StringVar(&modelFlag, "model", "", "route to this provider/model id")
 	return cmd
+}
+
+// resolveAgentModel turns a target into a concrete model (and provider).
+// A configured role or vector-* name becomes the harness virtual model;
+// anything else is treated as an explicit model id (or native alias).
+func resolveAgentModel(cfg *config.Config, harnessName, target string) (model, provider string, err error) {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return "", "", fmt.Errorf("empty target")
+	}
+	if strings.HasPrefix(t, "vector") {
+		return harness.VirtualModel(harnessName, t)
+	}
+	if _, ok := cfg.Roles[t]; ok {
+		return harness.VirtualModel(harnessName, t)
+	}
+	if strings.Contains(t, "/") {
+		if harnessName == "codex" {
+			pid, _, _ := strings.Cut(t, "/")
+			return t, pid, nil
+		}
+		return t, "", nil
+	}
+	// A bare word that is not a role: a native alias or raw model id.
+	return t, "", nil
 }
 
 func claudeManager(c *config.Config) harness.AgentManager { return harness.NewClaude(c) }

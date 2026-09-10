@@ -37,12 +37,11 @@ func (c *Claude) Agents() ([]Agent, error) {
 	return out, nil
 }
 
-// SetAgentModel rewrites an agent's `model:` frontmatter to a virtual model.
-func (c *Claude) SetAgentModel(name, target string) error {
+// SetAgentModel rewrites an agent's `model:` frontmatter to the given model.
+func (c *Claude) SetAgentModel(name, model, provider string) error {
 	name = strings.TrimSuffix(name, ".md")
-	model, _, err := VirtualTarget(c.Name(), target)
-	if err != nil {
-		return err
+	if strings.TrimSpace(model) == "" {
+		return fmt.Errorf("claude agent %q: empty model", name)
 	}
 	path := filepath.Join(c.agentsDir(), name+".md")
 	data, err := os.ReadFile(path)

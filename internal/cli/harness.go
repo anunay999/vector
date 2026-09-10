@@ -84,7 +84,7 @@ func newClaudeCmd() *cobra.Command {
 	})
 	cmd.AddCommand(
 		newHarnessAgentsCmd("List Claude Code subagents and their models", claudeManager),
-		newHarnessRouteCmd("Route a Claude Code subagent to a virtual model", claudeManager),
+		newHarnessRouteCmd("claude-code", "Route a Claude Code subagent to a role or model", claudeManager),
 	)
 	return cmd
 }
@@ -95,7 +95,7 @@ func newCodexCmd() *cobra.Command {
 	})
 	cmd.AddCommand(
 		newHarnessAgentsCmd("List Codex agent roles and their models", codexManager),
-		newHarnessRouteCmd("Route a Codex agent role to a virtual model", codexManager),
+		newHarnessRouteCmd("codex", "Route a Codex agent role to a role or model", codexManager),
 	)
 	return cmd
 }

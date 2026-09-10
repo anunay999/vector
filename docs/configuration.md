@@ -260,14 +260,16 @@ native plan. Point it at a virtual model to route it through Vector:
 
 ```sh
 vector agents                                   # what exists, and whether it is routed
-vector claude route scout vector-scout           # by role name or virtual model
-vector claude route worker reviewer
+vector claude route scout                        # -> the scout role (no target needed)
+vector claude route worker reviewer              # agent worker -> role reviewer
+vector claude route scout --model opus           # explicit model / native alias
 vector codex  route explorer worker
-vector claude route --all worker --dry-run       # every non-vector agent
+vector claude route --all --dry-run               # every non-vector agent
 ```
 
-`route` edits only the `model:` frontmatter (Claude) or the role file's `model` /
-`model_provider` (Codex), backs the file up once, and leaves the prompt intact.
+With no target, an agent routes to the role of the same name. `route` edits only
+the model binding (frontmatter for Claude, the role file for Codex), backs the
+file up once, and leaves the prompt intact.
 
 If you would rather force every subagent onto one model without editing agents,
 set `force_subagent_model` on the harness; it writes

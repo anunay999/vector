@@ -53,9 +53,9 @@ func (c *Codex) Agents() ([]Agent, error) {
 	return out, nil
 }
 
-// SetAgentModel points a Codex role's config file at a virtual model. It edits
+// SetAgentModel points a Codex role's config file at the given model. It edits
 // only the role file, never the user's config.toml.
-func (c *Codex) SetAgentModel(name, target string) error {
+func (c *Codex) SetAgentModel(name, model, provider string) error {
 	home := c.home()
 	configFile := ""
 	for _, f := range []string{filepath.Join(home, "config.toml"), c.overlayPath()} {
@@ -70,10 +70,8 @@ func (c *Codex) SetAgentModel(name, target string) error {
 	if configFile == "" {
 		return fmt.Errorf("codex agent %q has no config_file; give it one in ~/.codex/config.toml (e.g. config_file = \"agents/%s.toml\") before routing it", name, name)
 	}
-
-	model, provider, err := VirtualTarget(c.Name(), target)
-	if err != nil {
-		return err
+	if strings.TrimSpace(model) == "" {
+		return fmt.Errorf("codex agent %q: empty model", name)
 	}
 	path := configFile
 	if !filepath.IsAbs(path) {

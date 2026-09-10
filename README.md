@@ -122,14 +122,18 @@ would keep using the native plan. Inspect and repoint them:
 ```sh
 vector agents                              # every agent across harnesses + routed?
 vector claude agents
-vector claude route scout reviewer         # by role name, vector model, or provider/model
+vector claude route scout                  # routes scout -> the scout role
+vector claude route worker reviewer        # agent worker -> role reviewer
+vector claude route scout --model opus     # or an explicit model / native alias
 vector codex  route explorer worker
-vector claude route --all worker --dry-run
+vector claude route --all --dry-run
 ```
 
-`route` edits only the model binding (frontmatter for Claude, the role file for
-Codex), backs the file up once, and leaves the prompt untouched. To force every
-subagent onto one model instead, set `force_subagent_model: true` on the harness.
+With no target, an agent is routed to the role of the same name, so you never
+write `route scout scout`. `route` edits only the model binding (frontmatter for
+Claude, the role file for Codex), backs the file up once, and leaves the prompt
+untouched. To force every subagent onto one model instead, set
+`force_subagent_model: true` on the harness.
 
 ## How it works
 

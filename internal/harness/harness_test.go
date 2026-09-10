@@ -150,7 +150,7 @@ func TestClaudeAgentListAndRoute(t *testing.T) {
 		t.Fatalf("unexpected inventory: %+v", list)
 	}
 
-	if err := a.SetAgentModel("scout", "reviewer"); err != nil {
+	if err := a.SetAgentModel("scout", "vector-reviewer", ""); err != nil {
 		t.Fatalf("route: %v", err)
 	}
 	list, _ = a.Agents()
@@ -190,7 +190,7 @@ func TestCodexAgentListAndRoute(t *testing.T) {
 		t.Fatalf("unexpected inventory: %+v", list)
 	}
 
-	if err := a.SetAgentModel("worker", "worker"); err != nil {
+	if err := a.SetAgentModel("worker", "vector/worker", "vector"); err != nil {
 		t.Fatalf("route: %v", err)
 	}
 	data, _ := os.ReadFile(role)
