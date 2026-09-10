@@ -1,23 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="vector — Intelligent Model Router for Subagent Workflows">
   <title>vector social preview</title>
-  <defs>
-    <linearGradient id="lane" x1="260" y1="600" x2="640" y2="180" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#25B7EA"/>
-      <stop offset="0.45" stop-color="#16DFC9"/>
-      <stop offset="1" stop-color="#16E2C2"/>
-    </linearGradient>
-  </defs>
   <rect width="1280" height="640" fill="#0B0B0D"/>
-  <g transform="translate(120 170) scale(0.5085) translate(-220 -110)">
-    <g fill="none" stroke="url(#lane)" stroke-width="58" stroke-linecap="round">
-      <path d="M400 170 H520 Q560 170 586 224"/>
-      <path d="M288 278 H520 Q582 278 612 300"/>
-      <path d="M378 384 H604"/>
-      <path d="M288 490 H520 Q582 490 612 468"/>
-      <path d="M400 598 H520 Q560 598 586 544"/>
+  <g transform="translate(120 170) scale(0.5) translate(-154 -212)">
+    <defs>
+      <linearGradient id="flow" x1="210" y1="0" x2="690" y2="0" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#18D9E8"/>
+        <stop offset="0.62" stop-color="#22E6C1"/>
+        <stop offset="1" stop-color="#C7F04A"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke="url(#flow)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M210 268 H360 C430 268 462 316 510 366 L650 512"/>
+      <path d="M210 512 H650"/>
+      <path d="M210 756 H360 C430 756 462 708 510 658 L650 512"/>
     </g>
-    <path d="M560 198 L786 384 L560 570" fill="none" stroke="#D2F24A"
-          stroke-width="150" stroke-linejoin="round" stroke-linecap="butt"/>
+    <path d="M606 330 L792 512 L606 694" fill="none" stroke="#C7F04A" stroke-width="132" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <text x="560" y="330" fill="#F5F5F2"
         font-family="'Avenir Next','Avenir','Helvetica Neue',Helvetica,Arial,sans-serif"
