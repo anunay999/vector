@@ -50,7 +50,7 @@ func TestFallbackCandidatesArePopulated(t *testing.T) {
 	// The primary is GLM Flash; a candidate should be the next worker preference.
 	found := false
 	for _, c := range d.Candidates {
-		if c.UpstreamModel == "deepseek/deepseek-v4-flash" {
+		if c.UpstreamModel == "deepseek/deepseek-v4.1-flash" {
 			found = true
 		}
 	}

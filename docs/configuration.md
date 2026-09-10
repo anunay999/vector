@@ -118,7 +118,7 @@ roles:
     prefer: [openrouter/moonshotai/kimi-k3, openrouter/z-ai/glm-5.3]
   worker:
     tier: cheap
-    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash]
+    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4.1-flash]
   escalate:
     tier: frontier
     prefer: [anthropic-native, openai-native]

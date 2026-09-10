@@ -724,7 +724,7 @@ models:            # capability + price registry (can be auto-filled from provid
     tags: [cheap, fast, tools, long_context]
     context: 1_310_720
     price: { in: 0.15, out: 0.50 }
-  - id: deepseek/deepseek-v4-flash
+  - id: deepseek/deepseek-v4.1-flash
     tags: [cheap, fast, tools, high_throughput]
     price: { in: 0.14, out: 0.28 }
   - id: moonshotai/kimi-k3
@@ -739,8 +739,8 @@ roles:
   architect: { tier: frontier, prefer: [native/anthropic, native/openai] }
   lead:      { tier: frontier, prefer: [native/anthropic, openrouter/z-ai/glm-5.3] }
   reviewer:  { tier: smart,    prefer: [openrouter/moonshotai/kimi-k3, openrouter/z-ai/glm-5.3] }
-  worker:    { tier: cheap,    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash] }
-  scout:     { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4-flash, openrouter/z-ai/glm-5.3-flash] }
+  worker:    { tier: cheap,    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4.1-flash] }
+  scout:     { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4.1-flash, openrouter/z-ai/glm-5.3-flash] }
   escalate:  { tier: frontier, prefer: [native/anthropic, native/openai] }
 
 policies:
@@ -828,7 +828,7 @@ Cheap intelligence, matched to task shape (prices are OpenRouter list, per M tok
 | Model | In / Out | Best at | Use as |
 |---|---|---|---|
 | `z-ai/glm-5.3-flash` | $0.15 / $0.50 | agentic, code, huge context (1.31M) | default worker/scout |
-| `deepseek/deepseek-v4-flash` | $0.14 / $0.28 | throughput, classification, rote | scout, high-fanout, classifier |
+| `deepseek/deepseek-v4.1-flash` | $0.15 / $0.60 | throughput, classification, rote | scout, high-fanout, classifier |
 | `moonshotai/kimi-k3` | $2.50 / $14 | long context, tool use, agentic | reviewer, long-context worker |
 | `z-ai/glm-5.3` | $1.01 / $3.41 | reasoning, code generation | smart worker, medium lead |
 | `deepseek/deepseek-v4-pro` | $0.66 / $1.98 | reasoning/list price | reviewer fallback |

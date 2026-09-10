@@ -81,11 +81,11 @@ func TestRouteEscalateKeepsRequestedNativeModel(t *testing.T) {
 
 func TestRouteExplicitRegistryModel(t *testing.T) {
 	r := newRouter(t)
-	d, err := r.Route(Input{Shape: llm.ShapeAnthropic, Model: "openrouter/deepseek/deepseek-v4-flash"})
+	d, err := r.Route(Input{Shape: llm.ShapeAnthropic, Model: "openrouter/deepseek/deepseek-v4.1-flash"})
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if d.Provider.ID != "openrouter" || d.UpstreamModel != "deepseek/deepseek-v4-flash" {
+	if d.Provider.ID != "openrouter" || d.UpstreamModel != "deepseek/deepseek-v4.1-flash" {
 		t.Fatalf("got %s / %s", d.Provider.ID, d.UpstreamModel)
 	}
 }

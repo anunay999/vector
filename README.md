@@ -211,7 +211,7 @@ chooses one by name using its own spawn tool:
 | `vector-lead` | coordinate medium multi-step work | native / GLM-5.3 |
 | `vector-reviewer` | code review, tests, PR comments | Kimi-K3 / GLM-5.3 |
 | `vector-worker` | scoped edits, mechanical fixes | GLM-5.3-Flash |
-| `vector-scout` | read-only search and summarization | DeepSeek-V4-Flash |
+| `vector-scout` | read-only search and summarization | DeepSeek-V4.1-Flash |
 | `vector-researcher` | long-context reading | Kimi-K3 / Gemini |
 | `vector-escalate` | hard or repeated-failure tasks | native Claude/Codex |
 

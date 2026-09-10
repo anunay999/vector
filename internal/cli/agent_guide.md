@@ -86,7 +86,7 @@ vector config set models.0.price.out 0.50
 A role is a preference list resolved top to bottom:
 
 ```sh
-vector config set roles.worker.prefer '[openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash]'
+vector config set roles.worker.prefer '[openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4.1-flash]'
 ```
 
 Roles are exposed to harnesses as virtual models: `worker` → `vector-worker`.
