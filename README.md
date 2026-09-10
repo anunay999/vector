@@ -46,6 +46,48 @@ vector --version
 vector guide        # setup guide + current machine state
 ```
 
+## Set it up with your agent
+
+Paste this into Claude Code, Codex, OpenCode, or any coding agent. It installs
+vector, configures it, wires your harnesses, and verifies — no manual steps.
+
+```text
+Set up vector, a local model router for coding agents (github.com/anunay999/vector).
+
+1. Install it:
+     curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
+   If that fails (no release yet), use: go install github.com/anunay999/vector/cmd/vector@latest
+
+2. Read the self-describing guide and current machine state:
+     vector guide --json
+     vector schema
+
+3. Configure it. Use my OpenRouter key from $OPENROUTER_API_KEY if it is set;
+   otherwise ask me for the key before continuing:
+     vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
+   Drop harnesses I don't use from --wire (claude, codex, opencode).
+
+4. Verify and report back:
+     vector doctor --json
+     vector top --once
+   Summarize: config path, which harnesses are wired, gateway status, providers,
+   roles, and any warnings. If a check fails, run `vector guide` and fix it.
+
+Rules: never print, log, or commit the API key — it belongs only in
+~/.config/vector/env (mode 600). Never edit ~/.codex/config.toml; vector uses a
+managed overlay. Subagents must keep running natively in their own harness.
+
+If I already have agents in ~/.claude/agents (or Codex roles), list them with
+`vector agents` and tell me which ones still pin a native model, then offer to
+route them, e.g. `vector claude route scout`.
+```
+
+Or run the whole thing yourself in one command:
+
+```sh
+vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
+```
+
 ## Quick start
 
 ```sh
@@ -176,9 +218,10 @@ chooses one by name using its own spawn tool:
 Vector never hosts, sandboxes, or monitors a subagent. Subagents run natively in
 the harness; the router only chooses the model and translates wire formats.
 
-## Configure with an AI agent
+## Self-describing CLI
 
-Vector is self-describing, so it can be handed to a model to set up:
+The commands above emit machine-readable output, so both you and an agent can
+drive them:
 
 ```sh
 vector guide --json     # step-by-step guide + live state and next actions
