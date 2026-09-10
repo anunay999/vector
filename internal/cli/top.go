@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anunay999/vector/internal/config"
 	"github.com/anunay999/vector/internal/stats"
@@ -44,7 +45,7 @@ func newTopCmd() *cobra.Command {
 			if once {
 				snap, serr := stats.Collect(cfg, since, 14, stats.Filter{})
 				w, _ := termSize()
-				fmt.Print(frame(cfg, snap, serr, w, probeHealth(cfg), false, false, stats.Filter{}))
+				fmt.Print(frame(cfg, snap, serr, w, 0, probeHealth(cfg), false, false, stats.Filter{}))
 				return nil
 			}
 			return runTop(cfg, since, interval)
@@ -108,9 +109,9 @@ func runTop(cfg *config.Config, since, interval time.Duration) error {
 	}
 
 	render := func() {
-		w, _ := termSize()
+		w, h := termSize()
 		snap, err := stats.Collect(cfg, since, 14, filter)
-		fmt.Fprint(os.Stdout, frame(cfg, snap, err, w, probeHealth(cfg), paused, true, filter))
+		fmt.Fprint(os.Stdout, frame(cfg, snap, err, w, h, probeHealth(cfg), paused, true, filter))
 	}
 	render()
 
@@ -155,14 +156,11 @@ func termSize() (int, int) {
 	return 120, 40
 }
 
-func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, gatewayUp, paused, live bool, f stats.Filter) string {
-	if width < 80 {
-		width = 80
+func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height int, gatewayUp, paused, live bool, f stats.Filter) string {
+	if width < 40 {
+		width = 40
 	}
 	var b strings.Builder
-	if live {
-		b.WriteString("\x1b[H") // cursor home; we repaint every line
-	}
 
 	// Header.
 	routing, rc := "ON", cGreen
@@ -309,12 +307,23 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
-	// Recent.
+	// Recent. Cap the row count so a tall frame never exceeds the terminal height:
+	// a scroll on the alternate screen desyncs the cursor-home repaint.
+	recent := snap.Recent
+	if height > 0 {
+		room := height - strings.Count(b.String(), "\n") - 3 // title + separator + keys
+		if room < 0 {
+			room = 0
+		}
+		if len(recent) > room {
+			recent = recent[:room]
+		}
+	}
 	b.WriteString(cBold + " RECENT" + cReset + "\n")
 	if len(snap.Recent) == 0 {
 		fmt.Fprintf(&b, "  %s(no requests yet)%s\n", cDim, cReset)
 	}
-	for _, r := range snap.Recent {
+	for _, r := range recent {
 		model := r.RoutedModel
 		if r.RequestedModel != "" && r.RequestedModel != r.RoutedModel {
 			model = r.RequestedModel + " -> " + r.RoutedModel
@@ -323,19 +332,26 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width int, ga
 		if r.Error != "" {
 			status = fmt.Sprintf("%d %s", r.Status, truncate(r.Error, 24))
 		}
-		line := fmt.Sprintf("  %s  %-12s %-38s %-12s %6s %9s  %s",
+		fmt.Fprintf(&b, "  %s  %-12s %-38s %-12s %6s %9s  %s\n",
 			r.Time.Format("15:04:05"), truncate(r.Role, 12), truncate(model, 38),
 			truncate(r.Provider, 12), fmt.Sprintf("%d/%d", r.InputTokens, r.OutputTokens),
 			money(r.EstCostUSD), status)
-		fmt.Fprintln(&b, truncateANSI(line, width))
 	}
 
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 	fmt.Fprintf(&b, " %sq quit   p pause   r refresh   f role   v provider   a clear%s\n", cDim, cReset)
-	if live {
-		b.WriteString("\x1b[J") // clear anything below
+
+	// Fit each line to the terminal width and, for the live view, end it with CRLF.
+	// Raw mode clears OPOST, so a lone \n moves down without returning to column 0
+	// and the whole frame staircases; \x1b[K erases any stale glyphs to end-of-line.
+	lines := strings.Split(b.String(), "\n")
+	for i := range lines {
+		lines[i] = fitLine(lines[i], width)
 	}
-	return b.String()
+	if live {
+		return "\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K\x1b[J"
+	}
+	return strings.Join(lines, "\n")
 }
 
 func isNative(cfg *config.Config, providerID string) bool {
@@ -400,16 +416,108 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-// truncateANSI truncates a plain (unstyled) line to width, keeping it safe when
-// the terminal is narrow.
-func truncateANSI(s string, width int) string {
-	if len(s) <= width {
+// fitLine limits a rendered line to at most width display columns and always
+// resets styling. It is ANSI-aware: escape sequences cost no columns, and
+// truncation never lands mid-escape or mid-rune. Callers guarantee no line
+// exceeds the terminal width, so the terminal never auto-wraps.
+func fitLine(s string, width int) string {
+	if width <= 0 {
 		return s
 	}
-	if width <= 1 {
-		return s[:width]
+	styled := strings.IndexByte(s, 0x1b) >= 0
+
+	total := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			i = skipEscape(s, i)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		total += runeWidth(r)
+		i += size
 	}
-	return s[:width-1] + "…"
+	if total <= width {
+		if styled {
+			return s + cReset
+		}
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+
+	var b strings.Builder
+	vis := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			j := skipEscape(s, i)
+			b.WriteString(s[i:j])
+			i = j
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		w := runeWidth(r)
+		if vis+w > width-1 {
+			break
+		}
+		b.WriteRune(r)
+		vis += w
+		i += size
+	}
+	b.WriteString("…")
+	if styled {
+		b.WriteString(cReset)
+	}
+	return b.String()
+}
+
+// skipEscape returns the index just past the ANSI escape sequence starting at i
+// (which must be an ESC byte), handling both CSI (ESC [ ... final) and two-byte
+// escapes.
+func skipEscape(s string, i int) int {
+	j := i + 1
+	if j < len(s) && s[j] == '[' {
+		j++
+		for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+			j++
+		}
+		if j < len(s) {
+			j++
+		}
+		return j
+	}
+	if j < len(s) {
+		return j + 1
+	}
+	return j
+}
+
+// runeWidth returns the display width of r: 0 for control/combining, 2 for East
+// Asian wide, else 1. The dashboard's box-drawing and block glyphs are all 1.
+func runeWidth(r rune) int {
+	switch {
+	case r < 0x20 || (r >= 0x7f && r < 0xa0):
+		return 0
+	case r >= 0x0300 && r <= 0x036f:
+		return 0
+	case r == 0x2329 || r == 0x232a:
+		return 2
+	case r >= 0x1100 && r <= 0x115f:
+		return 2
+	case r >= 0x2e80 && r <= 0xa4cf && r != 0x303f:
+		return 2
+	case r >= 0xac00 && r <= 0xd7a3:
+		return 2
+	case r >= 0xf900 && r <= 0xfaff:
+		return 2
+	case r >= 0xfe30 && r <= 0xfe6f:
+		return 2
+	case r >= 0xff00 && r <= 0xff60:
+		return 2
+	case r >= 0xffe0 && r <= 0xffe6:
+		return 2
+	}
+	return 1
 }
 
 func colorCount(n int, color string) string {
