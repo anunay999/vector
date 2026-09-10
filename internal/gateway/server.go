@@ -306,16 +306,32 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			continue
 		}
 
-		// Retry another candidate on transient upstream failures.
-		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
-			lastErr = fmt.Errorf("upstream %s returned %d", dec.Provider.ID, resp.StatusCode)
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+		// Handle upstream errors. Retry the next candidate on transient
+		// failures and on credit/quota exhaustion, so a harness whose native
+		// plan is out of credits degrades to the cheap pool automatically.
+		if resp.StatusCode >= 400 {
+			peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 			resp.Body.Close()
+			retryable := resp.StatusCode >= 500 ||
+				resp.StatusCode == http.StatusTooManyRequests ||
+				isCreditError(peek)
+			if retryable && i < len(attempts)-1 {
+				lastErr = fmt.Errorf("upstream %s returned %d", dec.Provider.ID, resp.StatusCode)
+				rec.Status = resp.StatusCode
+				rec.Error = lastErr.Error()
+				rec.LatencyMS = time.Since(start).Milliseconds()
+				_ = s.rec.Record(rec)
+				s.log.Warn("falling back", "provider", dec.Provider.ID, "status", resp.StatusCode)
+				continue
+			}
+			provider.CopyHeaders(w, resp.Header)
+			w.WriteHeader(resp.StatusCode)
+			_, _ = w.Write(peek)
 			rec.Status = resp.StatusCode
-			rec.Error = lastErr.Error()
+			rec.Error = truncate(string(peek), 300)
 			rec.LatencyMS = time.Since(start).Milliseconds()
 			_ = s.rec.Record(rec)
-			continue
+			return
 		}
 
 		capture := newCaptureWriter(w, captureBytes)
@@ -359,6 +375,34 @@ func (s *Server) finish(w http.ResponseWriter, shape llm.Shape, rec telemetry.Re
 		rec.LatencyMS = time.Since(rec.Time).Milliseconds()
 	}
 	_ = s.rec.Record(rec)
+}
+
+// creditMarkers indicate an upstream plan is out of credits or quota, which
+// should trigger a fallback to the next candidate.
+var creditMarkers = []string{
+	"credit balance", "insufficient", "quota", "billing", "payment required",
+	"not enough credits", "out of credits", "exceeded your current quota",
+}
+
+// isCreditError reports whether an error body indicates exhausted credits/quota.
+func isCreditError(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	s := strings.ToLower(string(body))
+	for _, m := range creditMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func estimateCost(d router.Decision, env envelope) float64 {

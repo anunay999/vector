@@ -211,6 +211,46 @@ Baseten while hard work escalates to native Claude.
 **CI / headless.** `vector serve` in a container, keys from environment
 variables, `daily_usd` for a hard ceiling, `on_breach: stop`.
 
+## Degraded mode: running the planner on a cheap model
+
+If you run out of Claude credits, the *planner* can run on a cheap model too —
+Claude Code stays pointed at Vector (that is what `vector claude on` does), and
+Vector decides where the main-session traffic goes.
+
+**Automatic.** Keep native first and let Vector fail over. On a `429`, `5xx`, or
+a credit/quota error from the native provider, Vector retries the next candidate
+in the role's preference list and the `fallback.chain`. With the default chain
+(`worker → reviewer → escalate`), a planner that is out of credits lands on
+GLM‑5.3‑Flash / Kimi‑K3 automatically and the session keeps going:
+
+```yaml
+roles:
+  architect:
+    prefer: [anthropic-native, openrouter/z-ai/glm-5.3, openrouter/moonshotai/kimi-k3]
+fallback:
+  chain: [worker, reviewer, escalate]
+```
+
+**Forced.** To run the planner on a cheap model unconditionally, put it first:
+
+```sh
+vector config set roles.architect.prefer \
+  '[openrouter/z-ai/glm-5.3, openrouter/moonshotai/kimi-k3, anthropic-native]'
+vector restart
+```
+
+Then verify with `vector spend` (the architect rows should show the cheap
+provider) and `vector doctor`.
+
+Caveats: a cheap model as the main agent is a *degraded* mode — multi-step tool
+use and long-context reliability are weaker than Claude/Codex, and harness
+features that assume Anthropic semantics may behave differently. Prefer it as a
+fallback rather than the everyday default.
+
+For **Codex**, the main session is native unless you route it through Vector.
+Add a top-level provider to the managed overlay or run the main session under
+the `vector` profile with its provider set, then the same fallback applies.
+
 ## Verify
 
 ```sh

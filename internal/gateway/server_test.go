@@ -164,6 +164,57 @@ func TestModelsDiscovery(t *testing.T) {
 	}
 }
 
+// TestFallbackOnCreditError verifies that an out-of-credits response from the
+// native provider falls back to the cheap pool, so the planner keeps working.
+func TestFallbackOnCreditError(t *testing.T) {
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var env map[string]json.RawMessage
+		_ = json.Unmarshal(body, &env)
+		var model string
+		_ = json.Unmarshal(env["model"], &model)
+		seen = append(seen, model)
+		if model == "claude-opus-5" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API."}}`))
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{
+		{ID: "openrouter", Type: config.ProviderOpenAICompatible, BaseURL: upstream.URL, AnthropicBaseURL: upstream.URL, APIKey: "k"},
+		{ID: "anthropic-native", Type: config.ProviderAnthropic, BaseURL: upstream.URL, DefaultModel: "claude-opus-5", Native: true},
+		{ID: "openai-native", Type: config.ProviderOpenAIResponses, BaseURL: upstream.URL, DefaultModel: "gpt-6-astra", Native: true},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, telemetry.New(t.TempDir(), true), budget.New(0, nil, "downgrade", 4), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	body := `{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`
+	resp, err := http.Post(ts.URL+"/v1/messages", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 after credit fallback", resp.StatusCode)
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected a fallback attempt, saw %v", seen)
+	}
+	if seen[len(seen)-1] == "claude-opus-5" {
+		t.Fatalf("did not fall through on credit error: %v", seen)
+	}
+}
+
 func TestInvalidJSONReturnsShapeError(t *testing.T) {
 	ts, _ := newTestServer(t)
 	resp, err := http.Post(ts.URL+"/v1/messages", "application/json", strings.NewReader("{not json"))

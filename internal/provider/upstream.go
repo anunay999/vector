@@ -137,15 +137,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) { return c.hc.Do(
 // a safe subset of headers and returns once the body is fully copied.
 func CopyResponse(w http.ResponseWriter, resp *http.Response) (int64, error) {
 	defer resp.Body.Close()
-
-	for k, vv := range resp.Header {
-		if isHopByHop(k) {
-			continue
-		}
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
+	CopyHeaders(w, resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
 	flusher, _ := w.(http.Flusher)
@@ -167,6 +159,18 @@ func CopyResponse(w http.ResponseWriter, resp *http.Response) (int64, error) {
 		}
 		if err != nil {
 			return total, err
+		}
+	}
+}
+
+// CopyHeaders copies a response header set to w, skipping hop-by-hop headers.
+func CopyHeaders(w http.ResponseWriter, h http.Header) {
+	for k, vv := range h {
+		if isHopByHop(k) {
+			continue
+		}
+		for _, v := range vv {
+			w.Header().Add(k, v)
 		}
 	}
 }
