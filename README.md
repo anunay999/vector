@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mark.svg" alt="Vector" width="120">
+  <img src="assets/mark.svg" alt="vector" width="132">
 </p>
 
 # vector

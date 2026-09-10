@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Vector">
-  <title>Vector</title>
-  <rect width="1024" height="1024" rx="228" fill="#C7F04A"/>
-  <g stroke="#0B0B0D" fill="none" stroke-linecap="round">
+  <title>Vector mark (inverted)</title>
+  <rect width="1024" height="1024" rx="228" fill="#0B0B0D"/>
+  <g stroke="#C7F04A" fill="none" stroke-linecap="round">
     <path d="M556 574 L836 574" stroke-width="24"/>
     <path d="M610 476 L836 476" stroke-width="24"/>
     <path d="M664 378 L836 378" stroke-width="24"/>
     <path d="M263 320 L475 700 L687 320" stroke-width="158" stroke-linejoin="round"/>
   </g>
-  <path d="M316 402 L475 668 L634 402" fill="none" stroke="#C7F04A" stroke-width="18" stroke-linecap="round"/>
-  <g fill="#0B0B0D">
+  <path d="M316 402 L475 668 L634 402" fill="none" stroke="#0B0B0D" stroke-width="18" stroke-linecap="round"/>
+  <g fill="#C7F04A">
     <rect x="821" y="559" width="30" height="30" rx="8"/>
     <rect x="821" y="461" width="30" height="30" rx="8"/>
     <rect x="821" y="363" width="30" height="30" rx="8"/>
