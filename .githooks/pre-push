@@ -13,7 +13,7 @@ remote="$1"
 if [ "${VECTOR_ALLOW_DIRECT_PUSH:-0}" != "1" ]; then
   # Read the refs git wants to update.
   blocked=0
-  while read -r local_ref local_sha remote_ref remote_sha; do
+  while read -r _ _ remote_ref _; do
     [ -z "$remote_ref" ] && continue
     if [ "$remote_ref" = "refs/heads/$protected" ]; then
       blocked=1
