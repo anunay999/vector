@@ -1,0 +1,33 @@
+#!/bin/sh
+# vector pre-push hook: run tests and block direct pushes to the protected
+# default branch. This is defense-in-depth; the authoritative gate is GitHub
+# branch protection (see docs/governance.md).
+#
+# Install with: make hooks
+# Admin override: VECTOR_ALLOW_DIRECT_PUSH=1 git push origin main
+set -e
+
+protected="main"
+remote="$1"
+
+if [ "${VECTOR_ALLOW_DIRECT_PUSH:-0}" != "1" ]; then
+  # Read the refs git wants to update.
+  blocked=0
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "$remote_ref" ] && continue
+    if [ "$remote_ref" = "refs/heads/$protected" ]; then
+      blocked=1
+    fi
+  done
+  if [ "$blocked" = "1" ]; then
+    echo "pre-push: direct push to '$protected' is blocked." >&2
+    echo "           Open a pull request and get code-owner approval instead." >&2
+    echo "           Admin override: VECTOR_ALLOW_DIRECT_PUSH=1 git push $remote $protected" >&2
+    exit 1
+  fi
+fi
+
+if command -v go >/dev/null 2>&1; then
+  echo "pre-push: running go test ./..."
+  go test ./...
+fi

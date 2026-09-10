@@ -1,0 +1,25 @@
+#!/bin/sh
+# vector pre-commit hook: format + fast static checks on staged Go files.
+# Install with: make hooks
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+[ -z "$staged" ] && exit 0
+
+if command -v gofmt >/dev/null 2>&1; then
+  unformatted=$(gofmt -l $staged || true)
+  if [ -n "$unformatted" ]; then
+    echo "pre-commit: gofmt required for:" >&2
+    echo "$unformatted" >&2
+    echo "run: gofmt -w \$(git diff --cached --name-only --diff-filter=ACM | grep '\\.go\$')" >&2
+    exit 1
+  fi
+fi
+
+if command -v go >/dev/null 2>&1; then
+  if ! go vet ./... >/dev/null 2>&1; then
+    echo "pre-commit: go vet failed" >&2
+    go vet ./...
+    exit 1
+  fi
+fi

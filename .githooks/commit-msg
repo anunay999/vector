@@ -1,0 +1,18 @@
+#!/bin/sh
+# vector commit-msg hook: keep subjects short and non-empty.
+# Install with: make hooks
+set -e
+msg_file="$1"
+[ -z "$msg_file" ] && exit 0
+
+subject=$(head -n1 "$msg_file" | tr -d '\r')
+# Ignore comment-only / merge commits.
+case "$subject" in
+  "" | "#"* | "Merge "* ) exit 0 ;;
+esac
+
+len=$(printf '%s' "$subject" | wc -c | tr -d ' ')
+if [ "$len" -gt 100 ]; then
+  echo "commit-msg: subject is $len chars; keep it under 100" >&2
+  exit 1
+fi

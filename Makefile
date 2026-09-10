@@ -7,7 +7,11 @@ LDFLAGS := -X $(PKG)/internal/version.Version=$(VERSION) \
            -X $(PKG)/internal/version.Commit=$(COMMIT) \
            -X $(PKG)/internal/version.Date=$(DATE)
 
-.PHONY: build test race vet fmt lint tidy install run clean
+.PHONY: build test race vet fmt lint tidy install run clean hooks
+
+hooks:
+	git config core.hooksPath .githooks
+	@echo "installed git hooks from .githooks (pre-commit, commit-msg, pre-push)"
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/vector

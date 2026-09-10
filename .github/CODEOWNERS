@@ -1,0 +1,14 @@
+# CODEOWNERS — https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Every change requires review from the repository owner. Combined with branch
+# protection (require code owner review), no PR can merge into the default
+# branch without an approval from @anunay999.
+
+*                       @anunay999
+
+# Security- and governance-sensitive paths are owned explicitly.
+/.github/               @anunay999
+/.githooks/             @anunay999
+/internal/              @anunay999
+/install.sh             @anunay999
+/AGENTS.md              @anunay999

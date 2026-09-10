@@ -97,6 +97,13 @@ make race      # go test -race ./...
 make vet
 ```
 
+## Repository rules
+
+- The default branch (`main`) is protected. Do not push directly; open a PR. No
+  PR merges without code-owner (`@anunay999`) approval.
+- Install the local hooks with `make hooks`. See `docs/governance.md`.
+- Never commit API keys or secrets.
+
 ## Layout
 
 ```

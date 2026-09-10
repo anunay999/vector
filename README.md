@@ -209,6 +209,19 @@ internal/telemetry    JSONL request store
 internal/harness      Claude Code / Codex / OpenCode adapters
 ```
 
+## Contributing
+
+The default branch is protected: no pull request can merge without an approving
+review from the code owner (`@anunay999`), enforced via
+[`.github/CODEOWNERS`](.github/CODEOWNERS) and GitHub branch protection. Install
+the local hooks for fast feedback:
+
+```sh
+make hooks
+```
+
+See [docs/governance.md](docs/governance.md). Never commit secrets.
+
 ## Status
 
 Phase‑0 POC is working and tested: shape-aware routing, model rewrite, configured
