@@ -740,7 +740,7 @@ roles:
   lead:      { tier: frontier, prefer: [native/anthropic, openrouter/z-ai/glm-5.3] }
   reviewer:  { tier: smart,    prefer: [openrouter/moonshotai/kimi-k3, openrouter/z-ai/glm-5.3] }
   worker:    { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4.1-flash, openrouter/z-ai/glm-5.3-flash] }
-  scout:     { tier: cheap,    prefer: [openrouter/deepseek/deepseek-v4.1-flash, openrouter/z-ai/glm-5.3-flash] }
+  scout:     { tier: cheap,    prefer: [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4.1-flash] }
   escalate:  { tier: frontier, prefer: [native/anthropic, native/openai] }
 
 policies:

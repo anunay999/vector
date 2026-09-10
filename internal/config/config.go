@@ -226,7 +226,7 @@ func Default() *Config {
 			"lead":       {Tier: "frontier", Primary: true, Prefer: []string{"anthropic-native", "openrouter/z-ai/glm-5.3"}, Description: "Coordinate multi-step work and adjudicate."},
 			"reviewer":   {Tier: "smart", Prefer: []string{"openrouter/moonshotai/kimi-k3", "openrouter/z-ai/glm-5.3"}, Description: "Review code, tests, and PR comments."},
 			"worker":     {Tier: "cheap", Prefer: []string{"openrouter/deepseek/deepseek-v4.1-flash", "openrouter/z-ai/glm-5.3-flash"}, Description: "Scoped edits, mechanical fixes, resolving comments."},
-			"scout":      {Tier: "cheap", Prefer: []string{"openrouter/deepseek/deepseek-v4.1-flash", "openrouter/z-ai/glm-5.3-flash"}, Description: "Read-only search, read, and summarize."},
+			"scout":      {Tier: "cheap", Prefer: []string{"openrouter/z-ai/glm-5.3-flash", "openrouter/deepseek/deepseek-v4.1-flash"}, Description: "Read-only search, read, and summarize."},
 			"researcher": {Tier: "smart", Prefer: []string{"openrouter/moonshotai/kimi-k3", "openrouter/google/gemini-3.8-flash"}, Description: "Long-context reading of docs and benchmarks."},
 			"escalate":   {Tier: "frontier", Prefer: []string{"anthropic-native", "openai-native"}, Description: "Hard or repeated-failure tasks. Frontier only."},
 		},
