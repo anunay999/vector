@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Vector logo">
+  <title>Vector</title>
+  <defs>
+    <linearGradient id="flow" x1="210" y1="0" x2="690" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#18D9E8"/>
+      <stop offset="0.62" stop-color="#22E6C1"/>
+      <stop offset="1" stop-color="#C7F04A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Three routed streams -->
+  <g fill="none" stroke="url(#flow)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M210 268 H360 C430 268 462 316 510 366 L650 512"/>
+    <path d="M210 512 H650"/>
+    <path d="M210 756 H360 C430 756 462 708 510 658 L650 512"/>
+  </g>
+
+  <!-- Primary vector / arrow -->
+  <path d="M606 330 L792 512 L606 694" fill="none" stroke="#C7F04A" stroke-width="132" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mark.svg" alt="vector" width="132">
+  <img src="assets/logo.svg" alt="vector — Intelligent Model Router for Subagent Workflows" width="460">
 </p>
 
 # vector

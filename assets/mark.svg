@@ -1,16 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Vector">
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="590" viewBox="220 110 680 590" role="img" aria-label="Vector">
   <title>Vector</title>
-  <rect width="1024" height="1024" rx="228" fill="#C7F04A"/>
-  <g stroke="#0B0B0D" fill="none" stroke-linecap="round">
-    <path d="M556 574 L836 574" stroke-width="24"/>
-    <path d="M610 476 L836 476" stroke-width="24"/>
-    <path d="M664 378 L836 378" stroke-width="24"/>
-    <path d="M263 320 L475 700 L687 320" stroke-width="158" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="lane" x1="260" y1="600" x2="640" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#25B7EA"/>
+      <stop offset="0.45" stop-color="#16DFC9"/>
+      <stop offset="1" stop-color="#16E2C2"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#lane)" stroke-width="58" stroke-linecap="round">
+    <path d="M400 170 H520 Q560 170 586 224"/>
+    <path d="M288 278 H520 Q582 278 612 300"/>
+    <path d="M378 384 H604"/>
+    <path d="M288 490 H520 Q582 490 612 468"/>
+    <path d="M400 598 H520 Q560 598 586 544"/>
   </g>
-  <path d="M316 402 L475 668 L634 402" fill="none" stroke="#C7F04A" stroke-width="18" stroke-linecap="round"/>
-  <g fill="#0B0B0D">
-    <rect x="821" y="559" width="30" height="30" rx="8"/>
-    <rect x="821" y="461" width="30" height="30" rx="8"/>
-    <rect x="821" y="363" width="30" height="30" rx="8"/>
-  </g>
+  <path d="M560 198 L786 384 L560 570" fill="none" stroke="#D2F24A"
+        stroke-width="150" stroke-linejoin="round" stroke-linecap="butt"/>
 </svg>
