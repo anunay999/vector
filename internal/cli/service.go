@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/anunay999/vector/internal/service"
 	"github.com/spf13/cobra"
@@ -17,7 +18,11 @@ func newServiceCmd() *cobra.Command {
 			Use:   "install",
 			Short: "Install and start the service (launchd/systemd)",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				st, err := service.Install(configPath())
+				cfg, err := loadConfig()
+				if err != nil {
+					return err
+				}
+				st, err := service.Install(configPath(), filepath.Join(cfg.LogDir(), "gateway.log"))
 				if err != nil {
 					return err
 				}

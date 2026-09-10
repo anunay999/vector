@@ -51,6 +51,8 @@ vector doctor --json           # checks; exit 1 on a failed check
 vector status --json           # gateway, spend, harness wiring
 vector models --json           # roles + model registry
 vector spend --json            # usage and estimated cost
+vector logs [--follow]         # gateway log
+vector telemetry [--json]      # raw request records
 vector config get|set <path>   # edit config by dotted path
 vector env set|list|unset      # manage secrets (list redacts)
 vector up|down|restart|serve   # gateway lifecycle

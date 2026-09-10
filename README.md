@@ -181,18 +181,34 @@ and OpenCode.
 vector status
 vector doctor
 vector doctor --json
+
+vector logs                      # tail the gateway log
+vector logs --follow             # stream it
+vector logs --path               # just print the path
+
+vector telemetry --since 24h     # raw request records
+vector telemetry --json --limit 0
+vector telemetry --role worker --provider openrouter
+vector telemetry --follow        # stream new records as JSONL
+
+vector spend --since 24h         # aggregated cost / off-plan share
 ```
 
 `status` summarizes the gateway, harness wiring, and spend. `doctor` inspects the
-same path without changing it and exits non-zero on a failed check. Vector stores
-configuration, logs, and telemetry under `~/.config/vector/`:
+same path without changing it and exits non-zero on a failed check. Logs and
+telemetry live **beside the active config file** (so `--config /path` keeps them
+together):
 
 ```text
-~/.config/vector/config.yaml
-~/.config/vector/env            # secrets, mode 0600
-~/.config/vector/logs/gateway.log
-~/.config/vector/telemetry/     # JSONL request metadata
+<config dir>/config.yaml
+<config dir>/env                 # secrets, mode 0600
+<config dir>/logs/gateway.log    # every start method writes here
+<config dir>/telemetry/requests-YYYY-MM-DD.jsonl
 ```
+
+With the default config that is `~/.config/vector/`. Telemetry records metadata
+only — models, provider, role, tokens, cost, latency, status — never prompts,
+responses, headers, or bodies.
 
 | Symptom | Fix |
 |---|---|

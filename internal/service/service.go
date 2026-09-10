@@ -24,17 +24,18 @@ type Status struct {
 }
 
 // Install writes and loads the user service. configPathArg is passed to
-// `vector serve --config`.
-func Install(configPathArg string) (Status, error) {
+// `vector serve --config`, and logPath receives the gateway's stdout/stderr so
+// every start method logs to the same place.
+func Install(configPathArg, logPath string) (Status, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return Status{}, err
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		return installLaunchd(exe, configPathArg)
+		return installLaunchd(exe, configPathArg, logPath)
 	case "linux":
-		return installSystemd(exe, configPathArg)
+		return installSystemd(exe, configPathArg, logPath)
 	default:
 		return Status{Platform: runtime.GOOS}, fmt.Errorf("service install is not supported on %s", runtime.GOOS)
 	}
@@ -81,13 +82,12 @@ func Current() Status {
 	}
 }
 
-func installLaunchd(exe, configPathArg string) (Status, error) {
+func installLaunchd(exe, configPathArg, logPath string) (Status, error) {
 	path := launchdPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Status{}, err
 	}
-	logDir := filepath.Join(os.Getenv("HOME"), "Library", "Logs", "vector")
-	_ = os.MkdirAll(logDir, 0o755)
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o700)
 
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -108,7 +108,7 @@ func installLaunchd(exe, configPathArg string) (Status, error) {
 </dict>
 </plist>
 `, label, xmlEscape(exe), xmlEscape(configPathArg),
-		xmlEscape(filepath.Join(logDir, "gateway.log")), xmlEscape(filepath.Join(logDir, "gateway.log")))
+		xmlEscape(logPath), xmlEscape(logPath))
 
 	if err := os.WriteFile(path, []byte(plist), 0o644); err != nil {
 		return Status{}, err
@@ -120,11 +120,12 @@ func installLaunchd(exe, configPathArg string) (Status, error) {
 	return Status{Platform: "darwin", Path: path, Installed: true, Active: true, Detail: "loaded"}, nil
 }
 
-func installSystemd(exe, configPathArg string) (Status, error) {
+func installSystemd(exe, configPathArg, logPath string) (Status, error) {
 	path := systemdPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Status{}, err
 	}
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o700)
 	unit := fmt.Sprintf(`[Unit]
 Description=vector subagent model router
 After=network-online.target
@@ -133,10 +134,12 @@ After=network-online.target
 ExecStart=%s --config %s serve
 Restart=on-failure
 RestartSec=3
+StandardOutput=append:%s
+StandardError=append:%s
 
 [Install]
 WantedBy=default.target
-`, exe, configPathArg)
+`, exe, configPathArg, logPath, logPath)
 	if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
 		return Status{}, err
 	}

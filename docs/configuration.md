@@ -275,6 +275,36 @@ If you would rather force every subagent onto one model without editing agents,
 set `force_subagent_model` on the harness; it writes
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` and overrides per-agent pinning.
 
+## Logs and telemetry
+
+Both live beside the active config file (`--config /path` keeps them together;
+the default is `~/.config/vector/`).
+
+| What | Where | See it |
+|---|---|---|
+| Gateway log | `<config>/logs/gateway.log` | `vector logs [-f] [--path]` |
+| Request telemetry | `<config>/telemetry/requests-YYYY-MM-DD.jsonl` | `vector telemetry`, `vector spend` |
+
+`vector up`, `vector serve`, and the installed service all write the same
+`gateway.log`. The service previously used a separate location; `vector service
+install` now points launchd/systemd at this file, and Linux no longer requires
+the journal.
+
+Telemetry is append-only JSONL, one record per routed request: time, request id,
+harness, role, requested/routed model, provider, shapes, stream, status, latency,
+tokens, estimated cost, reason, and error. Read it with:
+
+```sh
+vector telemetry --since 1h --limit 0        # raw table
+vector telemetry --json                      # machine output
+vector telemetry --follow                    # stream new records
+vector telemetry --role worker --provider openrouter
+vector spend --since 168h                    # aggregate
+```
+
+It records metadata only — never prompts, responses, headers, or bodies. Disable
+it with `telemetry.enabled: false`; set `telemetry.dir` to relocate it.
+
 ## Verify
 
 ```sh

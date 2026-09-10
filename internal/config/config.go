@@ -353,8 +353,14 @@ func (c *Config) TelemetryDir() string {
 	return filepath.Join(Dir(), "telemetry")
 }
 
-// LogDir returns the directory for gateway logs.
-func (c *Config) LogDir() string { return filepath.Join(Dir(), "logs") }
+// LogDir returns the directory for gateway logs. It lives beside the active
+// config file so a custom --config keeps its logs (and telemetry) together.
+func (c *Config) LogDir() string {
+	if c.path != "" {
+		return filepath.Join(filepath.Dir(c.path), "logs")
+	}
+	return filepath.Join(Dir(), "logs")
+}
 
 // PIDFile returns the gateway pidfile path.
 func (c *Config) PIDFile() string { return filepath.Join(Dir(), "gateway.pid") }
