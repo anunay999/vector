@@ -145,7 +145,10 @@ type Fallback struct {
 type Harness struct {
 	Enabled       bool   `yaml:"enabled"`
 	SubagentModel string `yaml:"subagent_model"`
-	Profile       string `yaml:"profile"`
+	// ForceSubagentModel sets CLAUDE_CODE_SUBAGENT_MODEL_FORCE so every
+	// subagent uses SubagentModel, overriding per-agent model pinning.
+	ForceSubagentModel bool   `yaml:"force_subagent_model"`
+	Profile            string `yaml:"profile"`
 }
 
 // Telemetry configures the local JSONL request store.

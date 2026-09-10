@@ -112,6 +112,25 @@ vector opencode status
 Adds a `vector` provider and per-role subagents to `opencode.json`. Remove them
 with `vector opencode off`.
 
+## Agents
+
+Vector installs its own `vector-*` agents and never rewrites the ones you
+already have. But an existing agent that pins `model: opus` (Claude Code) or
+`model = "..."` (a Codex role file) overrides `CLAUDE_CODE_SUBAGENT_MODEL`, so it
+would keep using the native plan. Inspect and repoint them:
+
+```sh
+vector agents                              # every agent across harnesses + routed?
+vector claude agents
+vector claude route scout reviewer         # by role name, vector model, or provider/model
+vector codex  route explorer worker
+vector claude route --all worker --dry-run
+```
+
+`route` edits only the model binding (frontmatter for Claude, the role file for
+Codex), backs the file up once, and leaves the prompt untouched. To force every
+subagent onto one model instead, set `force_subagent_model: true` on the harness.
+
 ## How it works
 
 A request's model name resolves, strongest signal first, to a

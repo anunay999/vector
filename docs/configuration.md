@@ -251,6 +251,28 @@ For **Codex**, the main session is native unless you route it through Vector.
 Add a top-level provider to the managed overlay or run the main session under
 the `vector` profile with its provider set, then the same fallback applies.
 
+## Existing agents in your harness
+
+Vector installs its own `vector-*` agents and never rewrites yours. But an
+existing agent that pins `model: opus` (Claude Code) or `model = "..."` (a Codex
+role file) **overrides** `CLAUDE_CODE_SUBAGENT_MODEL`, so it would keep using the
+native plan. Point it at a virtual model to route it through Vector:
+
+```sh
+vector agents                                   # what exists, and whether it is routed
+vector claude route scout vector-scout           # by role name or virtual model
+vector claude route worker reviewer
+vector codex  route explorer worker
+vector claude route --all worker --dry-run       # every non-vector agent
+```
+
+`route` edits only the `model:` frontmatter (Claude) or the role file's `model` /
+`model_provider` (Codex), backs the file up once, and leaves the prompt intact.
+
+If you would rather force every subagent onto one model without editing agents,
+set `force_subagent_model` on the harness; it writes
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` and overrides per-agent pinning.
+
 ## Verify
 
 ```sh

@@ -79,15 +79,25 @@ func harnessCommand(name, short string, makeAdapter func(*config.Config) harness
 }
 
 func newClaudeCmd() *cobra.Command {
-	return harnessCommand("claude", "Wire Claude Code", func(c *config.Config) harness.Adapter {
+	cmd := harnessCommand("claude", "Wire Claude Code", func(c *config.Config) harness.Adapter {
 		return harness.NewClaude(c)
 	})
+	cmd.AddCommand(
+		newHarnessAgentsCmd("List Claude Code subagents and their models", claudeManager),
+		newHarnessRouteCmd("Route a Claude Code subagent to a virtual model", claudeManager),
+	)
+	return cmd
 }
 
 func newCodexCmd() *cobra.Command {
-	return harnessCommand("codex", "Wire Codex CLI", func(c *config.Config) harness.Adapter {
+	cmd := harnessCommand("codex", "Wire Codex CLI", func(c *config.Config) harness.Adapter {
 		return harness.NewCodex(c)
 	})
+	cmd.AddCommand(
+		newHarnessAgentsCmd("List Codex agent roles and their models", codexManager),
+		newHarnessRouteCmd("Route a Codex agent role to a virtual model", codexManager),
+	)
+	return cmd
 }
 
 func newOpenCodeCmd() *cobra.Command {

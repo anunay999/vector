@@ -88,6 +88,9 @@ func (c *Claude) Enable() (Report, error) {
 	sub := c.cfg.Harnesses["claude-code"].SubagentModel
 	if sub != "" {
 		env["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
+		if c.cfg.Harnesses["claude-code"].ForceSubagentModel {
+			env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] = sub
+		}
 	}
 	setStringMap(settings, "env", env)
 	if err := writeJSONMap(path, settings); err != nil {
@@ -104,6 +107,9 @@ func (c *Claude) Enable() (Report, error) {
 	sc.Keys["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
 	if sub != "" {
 		sc.Keys["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
+		if c.cfg.Harnesses["claude-code"].ForceSubagentModel {
+			sc.Keys["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] = sub
+		}
 	}
 
 	agents, err := c.writeAgents()

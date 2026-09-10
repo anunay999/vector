@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anunay999/vector/internal/config"
@@ -122,6 +123,80 @@ func TestCodexNeverTouchesUserConfig(t *testing.T) {
 	got, _ = os.ReadFile(userCfg)
 	if string(got) != original {
 		t.Fatal("codex user config changed across disable")
+	}
+}
+
+func TestClaudeAgentListAndRoute(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, ".claude"))
+	t.Setenv("VECTOR_CONFIG_DIR", filepath.Join(dir, "vectorcfg"))
+
+	agentsDir := filepath.Join(dir, ".claude", "agents")
+	if err := os.MkdirAll(agentsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scout := filepath.Join(agentsDir, "scout.md")
+	if err := os.WriteFile(scout, []byte("---\nname: scout\ndescription: read-only recon\nmodel: opus\n---\n\nYou are scout.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewClaude(testCfg(t))
+	list, err := a.Agents()
+	if err != nil {
+		t.Fatalf("agents: %v", err)
+	}
+	if len(list) != 1 || list[0].Name != "scout" || list[0].Model != "opus" || list[0].Routed {
+		t.Fatalf("unexpected inventory: %+v", list)
+	}
+
+	if err := a.SetAgentModel("scout", "reviewer"); err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	list, _ = a.Agents()
+	if list[0].Model != "vector-reviewer" || !list[0].Routed {
+		t.Fatalf("route did not apply: %+v", list[0])
+	}
+	data, _ := os.ReadFile(scout)
+	if !strings.Contains(string(data), "You are scout.") {
+		t.Fatal("route clobbered the agent body")
+	}
+}
+
+func TestCodexAgentListAndRoute(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", filepath.Join(dir, ".codex"))
+	t.Setenv("VECTOR_CONFIG_DIR", filepath.Join(dir, "vectorcfg"))
+	home := filepath.Join(dir, ".codex")
+	if err := os.MkdirAll(filepath.Join(home, "agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.toml"),
+		[]byte("[agents.worker]\ndescription = \"impl\"\nconfig_file = \"agents/worker.toml\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	role := filepath.Join(home, "agents", "worker.toml")
+	if err := os.WriteFile(role, []byte("model = \"gpt-6-astra\"\nmodel_provider = \"openai\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewCodex(testCfg(t))
+	list, err := a.Agents()
+	if err != nil {
+		t.Fatalf("agents: %v", err)
+	}
+	if len(list) != 1 || list[0].Model != "gpt-6-astra" || list[0].Provider != "openai" {
+		t.Fatalf("unexpected inventory: %+v", list)
+	}
+
+	if err := a.SetAgentModel("worker", "worker"); err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	data, _ := os.ReadFile(role)
+	got := string(data)
+	if !strings.Contains(got, `model = "vector/worker"`) || !strings.Contains(got, `model_provider = "vector"`) {
+		t.Fatalf("route did not apply:\n%s", got)
 	}
 }
 
