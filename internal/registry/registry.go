@@ -13,12 +13,12 @@ import (
 
 // Entry is a resolved, routable model.
 type Entry struct {
-	ID         string
-	ProviderID string
-	Upstream   string
-	Tags       []string
-	Context    int
-	Price      config.Price
+	ID         string       `json:"id"`
+	ProviderID string       `json:"provider"`
+	Upstream   string       `json:"upstream"`
+	Tags       []string     `json:"tags"`
+	Context    int          `json:"context"`
+	Price      config.Price `json:"price"`
 }
 
 // HasTag reports whether the entry carries tag (case-insensitive).

@@ -81,8 +81,8 @@ type Provider struct {
 
 // Price is per-million-token pricing in USD.
 type Price struct {
-	In  float64 `yaml:"in"`
-	Out float64 `yaml:"out"`
+	In  float64 `yaml:"in" json:"in"`
+	Out float64 `yaml:"out" json:"out"`
 }
 
 // Model is a registry entry describing a routable model.
@@ -96,10 +96,10 @@ type Model struct {
 
 // Role is a logical delegation role resolved to a concrete model at request time.
 type Role struct {
-	Tier        string   `yaml:"tier"` // frontier | smart | cheap
-	Primary     bool     `yaml:"primary"`
-	Prefer      []string `yaml:"prefer"`
-	Description string   `yaml:"description"`
+	Tier        string   `yaml:"tier" json:"tier"` // frontier | smart | cheap
+	Primary     bool     `yaml:"primary" json:"primary"`
+	Prefer      []string `yaml:"prefer" json:"prefer"`
+	Description string   `yaml:"description" json:"description"`
 }
 
 // Policy maps a match to a role or explicit route.
