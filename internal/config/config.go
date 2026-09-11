@@ -80,10 +80,14 @@ type Provider struct {
 	Native bool `yaml:"native"`
 }
 
-// Price is per-million-token pricing in USD.
+// Price is per-million-token pricing in USD. CacheRead/CacheWrite are the
+// provider's discounted rates for cached prompt tokens; prompt tokens that are
+// not a cache hit are billed at In.
 type Price struct {
-	In  float64 `yaml:"in" json:"in"`
-	Out float64 `yaml:"out" json:"out"`
+	In         float64 `yaml:"in" json:"in"`
+	Out        float64 `yaml:"out" json:"out"`
+	CacheRead  float64 `yaml:"cache_read,omitempty" json:"cache_read,omitempty"`
+	CacheWrite float64 `yaml:"cache_write,omitempty" json:"cache_write,omitempty"`
 }
 
 // Model is a registry entry describing a routable model.
@@ -209,12 +213,12 @@ func Default() *Config {
 			},
 		},
 		Models: []Model{
-			{ID: "openrouter/z-ai/glm-5.3-flash", Tags: []string{"cheap", "fast", "tools", "long_context"}, Context: 1310720, Price: Price{In: 0.15, Out: 0.50}},
-			{ID: "openrouter/deepseek/deepseek-v4.1-flash", Tags: []string{"cheap", "fast", "tools", "high_throughput", "long_context"}, Context: 1048576, Price: Price{In: 0.15, Out: 0.60}},
-			{ID: "openrouter/moonshotai/kimi-k3", Tags: []string{"smart", "tools", "long_context", "agentic"}, Context: 1048576, Price: Price{In: 2.50, Out: 14.00}},
-			{ID: "openrouter/z-ai/glm-5.3", Tags: []string{"smart", "reasoning", "code"}, Context: 1310720, Price: Price{In: 1.007, Out: 3.41}},
-			{ID: "openrouter/deepseek/deepseek-v4-pro", Tags: []string{"smart", "reasoning"}, Context: 1048576, Price: Price{In: 0.66, Out: 1.98}},
-			{ID: "openrouter/google/gemini-3.8-flash", Tags: []string{"smart", "vision", "long_context", "fast"}, Context: 1048576, Price: Price{In: 0.75, Out: 3.75}},
+			{ID: "openrouter/z-ai/glm-5.3-flash", Tags: []string{"cheap", "fast", "tools", "long_context"}, Context: 1310720, Price: Price{In: 0.15, Out: 0.50, CacheRead: 0.03}},
+			{ID: "openrouter/deepseek/deepseek-v4.1-flash", Tags: []string{"cheap", "fast", "tools", "high_throughput", "long_context"}, Context: 1048576, Price: Price{In: 0.30, Out: 1.20, CacheRead: 0.006}},
+			{ID: "openrouter/moonshotai/kimi-k3", Tags: []string{"smart", "tools", "long_context", "agentic"}, Context: 1048576, Price: Price{In: 2.34, Out: 11.70, CacheRead: 0.261}},
+			{ID: "openrouter/z-ai/glm-5.3", Tags: []string{"smart", "reasoning", "code"}, Context: 1310720, Price: Price{In: 1.40, Out: 4.40, CacheRead: 0.26}},
+			{ID: "openrouter/deepseek/deepseek-v4-pro", Tags: []string{"smart", "reasoning"}, Context: 1048576, Price: Price{In: 0.955, Out: 1.911, CacheRead: 0.079605}},
+			{ID: "openrouter/google/gemini-3.8-flash", Tags: []string{"smart", "vision", "long_context", "fast"}, Context: 1048576, Price: Price{In: 0.75, Out: 3.75, CacheRead: 0.075, CacheWrite: 0.041667}},
 		},
 		Roles: map[string]Role{
 			"architect":  {Tier: "frontier", Primary: true, Prefer: []string{"anthropic-native", "openai-native"}, Description: "Understand the issue, plan, and decompose work. Frontier only."},

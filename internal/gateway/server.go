@@ -440,7 +440,10 @@ func estimateCost(d router.Decision, env envelope) float64 {
 }
 
 func costOf(d router.Decision, u llm.Usage) float64 {
-	return float64(u.InputTokens)*d.Price.In/1e6 + float64(u.OutputTokens)*d.Price.Out/1e6
+	return float64(u.InputTokens)*d.Price.In/1e6 +
+		float64(u.OutputTokens)*d.Price.Out/1e6 +
+		float64(u.CacheReadTokens)*d.Price.CacheRead/1e6 +
+		float64(u.CacheWriteTokens)*d.Price.CacheWrite/1e6
 }
 
 // prepareBody replaces the top-level "model" field and, for non-Anthropic

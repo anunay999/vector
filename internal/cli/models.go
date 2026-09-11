@@ -147,9 +147,9 @@ func newModelsMapCmd() *cobra.Command {
 func newModelsSetCmd() *cobra.Command {
 	var tags string
 	var context int
-	var priceIn, priceOut float64
+	var priceIn, priceOut, priceCacheRead, priceCacheWrite float64
 	cmd := &cobra.Command{
-		Use:   "set <provider/model> [--tags a,b] [--context N] [--in F] [--out F]",
+		Use:   "set <provider/model> [--tags a,b] [--context N] [--in F] [--out F] [--cache-read F] [--cache-write F]",
 		Short: "Add or update a model in the registry",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -187,6 +187,12 @@ func newModelsSetCmd() *cobra.Command {
 			if cmd.Flags().Changed("out") {
 				price["out"] = priceOut
 			}
+			if cmd.Flags().Changed("cache-read") {
+				price["cache_read"] = priceCacheRead
+			}
+			if cmd.Flags().Changed("cache-write") {
+				price["cache_write"] = priceCacheWrite
+			}
 			entry["price"] = price
 			m["models"] = models
 			if err := writeRawConfigMap(path, m); err != nil {
@@ -201,6 +207,8 @@ func newModelsSetCmd() *cobra.Command {
 	cmd.Flags().IntVar(&context, "context", 0, "context window in tokens")
 	cmd.Flags().Float64Var(&priceIn, "in", 0, "USD per million input tokens")
 	cmd.Flags().Float64Var(&priceOut, "out", 0, "USD per million output tokens")
+	cmd.Flags().Float64Var(&priceCacheRead, "cache-read", 0, "USD per million cached input tokens")
+	cmd.Flags().Float64Var(&priceCacheWrite, "cache-write", 0, "USD per million cache-write tokens")
 	return cmd
 }
 

@@ -61,7 +61,9 @@
             "additionalProperties": false,
             "properties": {
               "in": { "type": "number", "description": "USD per million input tokens." },
-              "out": { "type": "number", "description": "USD per million output tokens." }
+              "out": { "type": "number", "description": "USD per million output tokens." },
+              "cache_read": { "type": "number", "description": "USD per million cached input tokens." },
+              "cache_write": { "type": "number", "description": "USD per million cache-write tokens." }
             }
           }
         }
