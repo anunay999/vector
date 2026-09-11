@@ -160,6 +160,12 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 	if width < 40 {
 		width = 40
 	}
+	// Flexible columns scale with the terminal so a wide window is not mostly
+	// empty. Fixed columns (time, tokens, cost, …) keep their size.
+	mixNameW := clampInt(width/4, 24, 48)
+	mixBarW := clampInt(width-mixNameW-16, 20, 160)
+	roleModelW := clampInt(width-72, 20, 80)
+	recentModelW := clampInt(width-104, 22, 110)
 	var b strings.Builder
 
 	// Header.
@@ -238,8 +244,9 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		if snap.Requests > 0 {
 			share = 100 * float64(g.Requests) / float64(snap.Requests)
 		}
-		fmt.Fprintf(&b, "  %-30s %s %5d %4.0f%%\n",
-			truncate(m, 30), barChart(float64(g.Requests)/float64(maxReq), 20, cCyan), g.Requests, share)
+		fmt.Fprintf(&b, "  %-*s %s %5d %4.0f%%\n",
+			mixNameW, truncate(m, mixNameW),
+			barChart(float64(g.Requests)/float64(maxReq), mixBarW, cCyan), g.Requests, share)
 	}
 	if provKeys := stats.SortedKeys(snap.ByProvider); len(provKeys) > 0 {
 		var parts []string
@@ -288,7 +295,8 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 
 	// Roles.
 	b.WriteString(cBold + " ROLES" + cReset + "\n")
-	fmt.Fprintf(&b, "  %-16s %-32s %5s %8s %6s %9s %11s %3s\n", "role", "model", "req", "tokens", "tok/s", "cost", "p50/p95", "err")
+	fmt.Fprintf(&b, "  %-16s %-*s %5s %8s %6s %9s %11s %3s\n",
+		"role", roleModelW, "model", "req", "tokens", "tok/s", "cost", "p50/p95", "err")
 	roleKeys := stats.SortedKeys(snap.ByRole)
 	if len(roleKeys) == 0 {
 		fmt.Fprintf(&b, "  %s(no requests yet)%s\n", cDim, cReset)
@@ -299,8 +307,8 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		if model == "" {
 			model = "-"
 		}
-		fmt.Fprintf(&b, "  %-16s %-32s %5d %8s %6.0f %9s %11s %3s\n",
-			truncate(role, 16), truncate(model, 32), g.Requests,
+		fmt.Fprintf(&b, "  %-16s %-*s %5d %8s %6.0f %9s %11s %3s\n",
+			truncate(role, 16), roleModelW, truncate(model, roleModelW), g.Requests,
 			humanInt(g.InputTokens+g.OutputTokens), g.TokensPerSec(), money(g.Cost),
 			fmt.Sprintf("%s/%s", ms(g.P50()), ms(g.P95())),
 			colorCount(g.Errors, cRed))
@@ -332,9 +340,9 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		if r.Error != "" {
 			status = fmt.Sprintf("%d %s", r.Status, truncate(r.Error, 24))
 		}
-		fmt.Fprintf(&b, "  %s  %-8s %-12s %-34s %-12s %6s %9s  %s\n",
+		fmt.Fprintf(&b, "  %s  %-8s %-12s %-*s %-12s %6s %9s  %s\n",
 			r.Time.Format("15:04:05"), shortSession(r.Session), truncate(r.Role, 12),
-			truncate(model, 34), truncate(r.Provider, 12),
+			recentModelW, truncate(model, recentModelW), truncate(r.Provider, 12),
 			fmt.Sprintf("%d/%d", r.InputTokens, r.OutputTokens),
 			money(r.EstCostUSD), status)
 	}
@@ -405,6 +413,17 @@ func ms(v int64) string {
 		return fmt.Sprintf("%.1fs", float64(v)/1000)
 	}
 	return fmt.Sprintf("%dms", v)
+}
+
+// clampInt bounds v to [lo, hi].
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 func truncate(s string, n int) string {
