@@ -58,6 +58,36 @@ func TestVerticalBars(t *testing.T) {
 	}
 }
 
+// The cost chart has to carry a scale and real numbers, not just unlabeled bars.
+func TestCostPerDayAnnotated(t *testing.T) {
+	now := time.Now()
+	daily := make([]stats.Day, stats.HistogramDays)
+	for i := range daily {
+		daily[i].Date = now.AddDate(0, 0, -(stats.HistogramDays - 1 - i))
+	}
+	daily[stats.HistogramDays-1].Cost = 8.61
+	daily[stats.HistogramDays-1].Requests = 100
+	snap := stats.Snapshot{
+		Daily:      daily,
+		ByRole:     map[string]*stats.Group{},
+		ByModel:    map[string]*stats.Group{},
+		ByProvider: map[string]*stats.Group{},
+		RoleModel:  map[string]string{},
+		Buckets:    make([]stats.Bucket, stats.BucketCount),
+	}
+	out := stripANSI(frame(&config.Config{}, snap, nil, 120, 60, true, false, false, stats.Filter{}))
+	for _, want := range []string{"COST / DAY", "today $8.6100", "7d avg ", "peak ", "┤", "└", "$0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("cost/day missing %q:\n%s", want, out)
+		}
+	}
+	// Narrow: keep the headline number, drop the rest instead of overflowing.
+	narrow := stripANSI(frame(&config.Config{}, snap, nil, 40, 0, true, false, false, stats.Filter{}))
+	if !strings.Contains(narrow, "today ") {
+		t.Fatalf("narrow cost/day dropped today:\n%s", narrow)
+	}
+}
+
 func visibleCols(s string) int {
 	return utf8.RuneCountInString(strings.ReplaceAll(stripANSI(s), "\r", ""))
 }
