@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -91,5 +92,32 @@ func TestIsSubagentRequest(t *testing.T) {
 				t.Fatalf("isSubagentRequest = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestModelsEndpointAdvertisesNativeDefaultModel(t *testing.T) {
+	ts, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range out.Data {
+		if m.ID == "claude-opus-5" && m.OwnedBy == "anthropic-native" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("native default model not advertised: %+v", out.Data)
 	}
 }

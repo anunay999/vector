@@ -195,6 +195,40 @@ fallback:
 - Native (subscription) providers have no `price`, so they never count toward
   the dollar ceiling — they consume quota, which is the whole point.
 
+## Guard
+
+Budget governs spend. `guard` holds request-pattern circuit breakers: a harness
+misbehaving in a way that burns tokens whichever model serves it.
+
+```yaml
+guard:
+  thrash:
+    enabled: true
+    min_prompt_tokens: 150000   # input+cache_write a cold (cache_read=0) request must reach
+    cold_requests: 2            # rebuilds of that size inside window that trip the breaker
+    window: 10m
+    action: warn                # warn | block
+    cooldown: 5m                # how long a tripped session stays tripped
+```
+
+`thrash` is the context-thrash breaker. A healthy session pays one cold prompt
+at start and then rides the cache. Claude Code's auto-compact loop pays it on
+every turn: when the fixed payload (tool schemas, system prompt, instructions)
+is already above the compact threshold, each compaction rebuilds the whole
+prompt and the next turn compacts again. Two such rebuilds inside ten minutes
+trips the session:
+
+- `warn` logs a `context thrash detected` line, sets `X-Vector-Warning` on the
+  session's following responses, and records `guard: thrash-warn` in telemetry.
+- `block` answers the session's requests with `429` and an explanation until
+  `cooldown` passes, then resets so a session that `/clear`ed recovers.
+
+Only `2xx` responses that carried usage are observed, only requests that
+identified their session (`X-Claude-Code-Session-Id`, `session-id`) are keyed,
+and side channels such as `count_tokens` never count. See
+[claude-code-context](claude-code-context.md) for why this happens and how to
+stop it at the source.
+
 ## Secrets
 
 Never put keys in `config.yaml`. Reference them:
@@ -222,6 +256,15 @@ harnesses:
 
 telemetry: {dir: ~/.config/vector/telemetry, retention_days: 90, enabled: true}
 ```
+
+`vector claude on` writes four keys into the `env` block of Claude Code's
+`settings.json`: `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_SUBAGENT_MODEL`,
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, and `ENABLE_TOOL_SEARCH=auto`.
+The last one re-enables Claude Code's deferred MCP tool loading, which the CLI
+turns off on its own behind any non-Anthropic base URL; without it every
+request carries every tool schema. A value you set yourself is left alone.
+`vector claude off` removes only the values vector wrote. See
+[claude-code-context](claude-code-context.md).
 
 ## Recipes
 

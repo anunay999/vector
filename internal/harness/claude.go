@@ -11,6 +11,14 @@ import (
 	"github.com/anunay999/vector/internal/config"
 )
 
+// Claude Code env keys vector manages beyond the base URL.
+const (
+	// toolSearchKey re-enables Claude Code's deferred tool loading, which the
+	// CLI disables on its own when the base URL is not api.anthropic.com.
+	toolSearchKey   = "ENABLE_TOOL_SEARCH"
+	toolSearchValue = "auto"
+)
+
 // Claude wires Claude Code by editing its settings.json env block and installing
 // native subagent definitions under ~/.claude/agents.
 type Claude struct {
@@ -85,6 +93,15 @@ func (c *Claude) Enable() (Report, error) {
 	baseURL := "http://" + c.cfg.Listen.Anthropic
 	env["ANTHROPIC_BASE_URL"] = baseURL
 	env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
+	// Claude Code turns its deferred tool loading (MCP tool schemas behind a
+	// ToolSearch tool) off whenever ANTHROPIC_BASE_URL is not api.anthropic.com,
+	// so every request re-sends every tool schema. The gateway forwards
+	// tool_reference blocks to Anthropic unchanged and expands them for other
+	// upstreams, so it is safe to turn back on. A user value is respected.
+	_, userSetToolSearch := env[toolSearchKey]
+	if !userSetToolSearch {
+		env[toolSearchKey] = toolSearchValue
+	}
 	sub := c.cfg.Harnesses["claude-code"].SubagentModel
 	if sub != "" {
 		env["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
@@ -95,6 +112,7 @@ func (c *Claude) Enable() (Report, error) {
 	}
 	rep.Changed = true
 	rep.add(path, "set ANTHROPIC_BASE_URL="+baseURL)
+	rep.add(path, "set "+toolSearchKey+"="+env[toolSearchKey]+" (deferred MCP tool schemas)")
 
 	sc, err := c.loadSidecar()
 	if err != nil {
@@ -102,6 +120,9 @@ func (c *Claude) Enable() (Report, error) {
 	}
 	sc.Keys["ANTHROPIC_BASE_URL"] = baseURL
 	sc.Keys["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
+	if !userSetToolSearch {
+		sc.Keys[toolSearchKey] = toolSearchValue
+	}
 	if sub != "" {
 		sc.Keys["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
 	}
@@ -164,8 +185,10 @@ func (c *Claude) Status() (Status, error) {
 	base := env["ANTHROPIC_BASE_URL"]
 	want := "http://" + c.cfg.Listen.Anthropic
 	info := map[string]string{
-		"settings": c.settingsPath(),
-		"base_url": base,
+		"settings":    c.settingsPath(),
+		"base_url":    base,
+		"tool_search": env[toolSearchKey],
+		"model":       stringValue(settings["model"]),
 	}
 	return Status{
 		Harness: c.Name(),
@@ -195,6 +218,12 @@ func (c *Claude) writeAgents() ([]string, error) {
 	}
 	sort.Strings(written)
 	return written, nil
+}
+
+// stringValue returns v when it is a string, else "".
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func claudeAgentDoc(name, description, model string) string {

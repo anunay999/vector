@@ -215,3 +215,57 @@ func TestCodexRefusesForeignOverlay(t *testing.T) {
 		t.Fatal("expected refusal to overwrite a foreign overlay")
 	}
 }
+
+func TestClaudeEnableSetsToolSearchButRespectsUserValue(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, ".claude"))
+	t.Setenv("VECTOR_CONFIG_DIR", filepath.Join(dir, "vectorcfg"))
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fresh settings: vector sets ENABLE_TOOL_SEARCH=auto and removes it on off.
+	if err := os.WriteFile(settings, []byte(`{"model":"opus[1m]"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := NewClaude(testCfg(t))
+	if _, err := a.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := readJSONMap(settings)
+	if got := stringMap(m, "env")["ENABLE_TOOL_SEARCH"]; got != "auto" {
+		t.Fatalf("ENABLE_TOOL_SEARCH = %q, want auto", got)
+	}
+	st, _ := a.Status()
+	if st.Info["tool_search"] != "auto" || st.Info["model"] != "opus[1m]" {
+		t.Fatalf("status info = %v", st.Info)
+	}
+	if _, err := a.Disable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = readJSONMap(settings)
+	if _, ok := stringMap(m, "env")["ENABLE_TOOL_SEARCH"]; ok {
+		t.Fatal("disable did not remove vector's ENABLE_TOOL_SEARCH")
+	}
+
+	// A user-chosen value survives enable and disable.
+	if err := os.WriteFile(settings, []byte(`{"env":{"ENABLE_TOOL_SEARCH":"true"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = readJSONMap(settings)
+	if got := stringMap(m, "env")["ENABLE_TOOL_SEARCH"]; got != "true" {
+		t.Fatalf("user value clobbered: %q", got)
+	}
+	if _, err := a.Disable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = readJSONMap(settings)
+	if got := stringMap(m, "env")["ENABLE_TOOL_SEARCH"]; got != "true" {
+		t.Fatalf("disable removed the user's value: %q", got)
+	}
+}

@@ -87,9 +87,14 @@ Consequences, by design:
 - An explicit model request is honored or fails; it is never silently swapped.
 - A detected subagent that the worker model rejects fails visibly.
 
-The pre-flight normalizer is retained: `context_management` is still stripped
-for non-Anthropic upstreams, so the common Claude Code continuation shape is
-accepted by the cheap pool.
+The pre-flight normalizer is retained and covers Claude Code's tool search as
+well as `context_management`: for a non-Anthropic upstream, `defer_loading` is
+removed from tools, the server-side `tool_search_tool_*` tool is dropped,
+`tool_reference` blocks become plain text naming the tool,
+`server_tool_use` / `tool_search_tool_result` history blocks are dropped, and
+the tool-search betas are filtered out of `anthropic-beta`. Anthropic-bound
+requests are forwarded byte-for-byte. See
+[claude-code-context](claude-code-context.md).
 
 ## 5. Subagent detection
 
