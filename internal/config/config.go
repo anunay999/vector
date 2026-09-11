@@ -34,6 +34,7 @@ type Config struct {
 	ModelMap       []ModelRule        `yaml:"model_map"`
 	Subagents      Subagents          `yaml:"subagents"`
 	Budget         Budget             `yaml:"budget"`
+	Guard          Guard              `yaml:"guard"`
 	Fallback       Fallback           `yaml:"fallback"`
 	Harnesses      map[string]Harness `yaml:"harnesses"`
 	Telemetry      Telemetry          `yaml:"telemetry"`
@@ -138,6 +139,56 @@ type Budget struct {
 	MaxConcurrentSubagentsPerHarness int                `yaml:"max_concurrent_subagents_per_harness"`
 }
 
+// Guard groups the request-pattern circuit breakers. Unlike Budget, which
+// governs spend, a guard watches for a harness misbehaving in a way that will
+// burn tokens regardless of which model serves it.
+type Guard struct {
+	Thrash Thrash `yaml:"thrash"`
+}
+
+// Thrash actions.
+const (
+	ThrashWarn  = "warn"
+	ThrashBlock = "block"
+)
+
+// Thrash configures the context-thrash breaker: a session that rebuilds a very
+// large prompt from a cold cache several times inside a short window is in a
+// compaction loop (the fixed payload is above the harness's auto-compact
+// threshold) and is warned or blocked until the cooldown passes.
+type Thrash struct {
+	// Enabled defaults to true.
+	Enabled *bool `yaml:"enabled"`
+	// MinPromptTokens is the input+cache_write size a cold request must reach
+	// to count as a rebuild. Default 150000: below the 200k window nothing
+	// thrashes, and a small cold prompt is a normal session start.
+	MinPromptTokens int `yaml:"min_prompt_tokens"`
+	// ColdRequests is how many rebuilds inside Window trip the breaker. Default 2.
+	ColdRequests int `yaml:"cold_requests"`
+	// Window bounds the rebuilds that count together. Default 10m.
+	Window time.Duration `yaml:"window"`
+	// Action is warn (log + response header + telemetry) or block (429 with an
+	// explanation until Cooldown passes). Default warn.
+	Action string `yaml:"action"`
+	// Cooldown is how long a tripped session stays tripped. Default 5m.
+	Cooldown time.Duration `yaml:"cooldown"`
+}
+
+// On reports whether the breaker is active.
+func (t Thrash) On() bool { return t.Enabled == nil || *t.Enabled }
+
+// DefaultThrash returns the breaker defaults.
+func DefaultThrash() Thrash {
+	return Thrash{
+		Enabled:         boolPtr(true),
+		MinPromptTokens: 150000,
+		ColdRequests:    2,
+		Window:          10 * time.Minute,
+		Action:          ThrashWarn,
+		Cooldown:        5 * time.Minute,
+	}
+}
+
 // Fallback configures resilience.
 type Fallback struct {
 	TTFTTimeout time.Duration `yaml:"ttft_timeout"`
@@ -235,6 +286,7 @@ func Default() *Config {
 			OnBreach:                         "downgrade",
 			MaxConcurrentSubagentsPerHarness: 8,
 		},
+		Guard: Guard{Thrash: DefaultThrash()},
 		Fallback: Fallback{
 			TTFTTimeout: 30 * time.Second,
 		},
@@ -272,6 +324,23 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Fallback.TTFTTimeout == 0 {
 		c.Fallback.TTFTTimeout = 30 * time.Second
+	}
+	d := DefaultThrash()
+	t := &c.Guard.Thrash
+	if t.MinPromptTokens == 0 {
+		t.MinPromptTokens = d.MinPromptTokens
+	}
+	if t.ColdRequests == 0 {
+		t.ColdRequests = d.ColdRequests
+	}
+	if t.Window == 0 {
+		t.Window = d.Window
+	}
+	if t.Action == "" {
+		t.Action = d.Action
+	}
+	if t.Cooldown == 0 {
+		t.Cooldown = d.Cooldown
 	}
 	if c.Telemetry.RetentionDays == 0 {
 		c.Telemetry.RetentionDays = 90

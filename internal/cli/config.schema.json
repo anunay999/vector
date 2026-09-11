@@ -6,7 +6,10 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "integer", "const": 1 },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
     "routing_enabled": {
       "type": "boolean",
       "default": true,
@@ -16,9 +19,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "anthropic": { "type": "string", "examples": ["127.0.0.1:7331"] },
-        "openai": { "type": "string" },
-        "admin": { "type": "string" }
+        "anthropic": {
+          "type": "string",
+          "examples": [
+            "127.0.0.1:7331"
+          ]
+        },
+        "openai": {
+          "type": "string"
+        },
+        "admin": {
+          "type": "string"
+        }
       }
     },
     "providers": {
@@ -27,22 +39,50 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "type", "base_url"],
+        "required": [
+          "id",
+          "type",
+          "base_url"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
           "type": {
-            "enum": ["openai_compatible", "anthropic", "openai_responses"],
+            "enum": [
+              "openai_compatible",
+              "anthropic",
+              "openai_responses"
+            ],
             "description": "Protocol spoken upstream."
           },
-          "base_url": { "type": "string", "description": "Upstream root. A /v1 segment is not duplicated on join." },
+          "base_url": {
+            "type": "string",
+            "description": "Upstream root. A /v1 segment is not duplicated on join."
+          },
           "anthropic_base_url": {
             "type": "string",
             "description": "Optional Anthropic Messages root on the same provider, so Anthropic-shaped requests skip translation (OpenRouter provides one)."
           },
-          "api_key": { "type": "string", "description": "Literal or ${VAR}. Empty with native=true means use the inbound credential." },
-          "default_model": { "type": "string", "description": "Model used when a virtual role targets this native provider." },
-          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
-          "native": { "type": "boolean", "description": "Forward the caller's Authorization/X-Api-Key (subscription passthrough)." }
+          "api_key": {
+            "type": "string",
+            "description": "Literal or ${VAR}. Empty with native=true means use the inbound credential."
+          },
+          "default_model": {
+            "type": "string",
+            "description": "Model used when a virtual role targets this native provider."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "native": {
+            "type": "boolean",
+            "description": "Forward the caller's Authorization/X-Api-Key (subscription passthrough)."
+          }
         }
       }
     },
@@ -51,19 +91,55 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "properties": {
-          "id": { "type": "string", "pattern": "^[^/]+/.+$", "description": "<providerID>/<upstreamModel>" },
-          "tags": { "type": "array", "items": { "type": "string" }, "examples": [["cheap", "fast", "tools", "long_context", "vision", "reasoning"]] },
-          "context": { "type": "integer", "description": "Context window in tokens." },
+          "id": {
+            "type": "string",
+            "pattern": "^[^/]+/.+$",
+            "description": "<providerID>/<upstreamModel>"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "examples": [
+              [
+                "cheap",
+                "fast",
+                "tools",
+                "long_context",
+                "vision",
+                "reasoning"
+              ]
+            ]
+          },
+          "context": {
+            "type": "integer",
+            "description": "Context window in tokens."
+          },
           "price": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "in": { "type": "number", "description": "USD per million input tokens." },
-              "out": { "type": "number", "description": "USD per million output tokens." },
-              "cache_read": { "type": "number", "description": "USD per million cached input tokens." },
-              "cache_write": { "type": "number", "description": "USD per million cache-write tokens." }
+              "in": {
+                "type": "number",
+                "description": "USD per million input tokens."
+              },
+              "out": {
+                "type": "number",
+                "description": "USD per million output tokens."
+              },
+              "cache_read": {
+                "type": "number",
+                "description": "USD per million cached input tokens."
+              },
+              "cache_write": {
+                "type": "number",
+                "description": "USD per million cache-write tokens."
+              }
             }
           }
         }
@@ -75,17 +151,33 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["prefer"],
+        "required": [
+          "prefer"
+        ],
         "properties": {
-          "tier": { "enum": ["frontier", "smart", "cheap"], "default": "cheap" },
-          "primary": { "type": "boolean", "description": "True for planning roles; primary traffic does not consume a subagent concurrency slot." },
+          "tier": {
+            "enum": [
+              "frontier",
+              "smart",
+              "cheap"
+            ],
+            "default": "cheap"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "True for planning roles; primary traffic does not consume a subagent concurrency slot."
+          },
           "prefer": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Ordered targets: another role, a registered model id, or a provider id."
           },
-          "description": { "type": "string" }
+          "description": {
+            "type": "string"
+          }
         }
       }
     },
@@ -95,10 +187,19 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["from", "to"],
+        "required": [
+          "from",
+          "to"
+        ],
         "properties": {
-          "from": { "type": "string", "description": "Inbound model id, exact or trailing * glob." },
-          "to": { "type": "string", "description": "A role name, registered model id, or provider id." }
+          "from": {
+            "type": "string",
+            "description": "Inbound model id, exact or trailing * glob."
+          },
+          "to": {
+            "type": "string",
+            "description": "A role name, registered model id, or provider id."
+          }
         }
       }
     },
@@ -106,24 +207,96 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "route": { "type": "boolean", "default": true, "description": "Agent mode: route structurally detected subagent traffic through the vector worker agent. Set false to pass subagents through untouched." }
+        "route": {
+          "type": "boolean",
+          "default": true,
+          "description": "Agent mode: route structurally detected subagent traffic through the vector worker agent. Set false to pass subagents through untouched."
+        }
       }
     },
     "budget": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "daily_usd": { "type": "number", "minimum": 0 },
-        "per_provider": { "type": "object", "additionalProperties": { "type": "number" } },
-        "on_breach": { "enum": ["downgrade", "queue", "stop"], "default": "downgrade" },
-        "max_concurrent_subagents_per_harness": { "type": "integer", "minimum": 1 }
+        "daily_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "per_provider": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "on_breach": {
+          "enum": [
+            "downgrade",
+            "queue",
+            "stop"
+          ],
+          "default": "downgrade"
+        },
+        "max_concurrent_subagents_per_harness": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Request-pattern circuit breakers (spend is governed by budget).",
+      "properties": {
+        "thrash": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Context-thrash breaker: a session that rebuilds a very large prompt from a cold cache several times inside a short window is in a compaction loop and is warned or blocked.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "min_prompt_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 150000,
+              "description": "input+cache_write tokens a cold (cache_read=0) request must reach to count as a rebuild."
+            },
+            "cold_requests": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 2,
+              "description": "Rebuilds inside window that trip the breaker."
+            },
+            "window": {
+              "type": "string",
+              "default": "10m",
+              "description": "Go duration string."
+            },
+            "action": {
+              "enum": [
+                "warn",
+                "block"
+              ],
+              "default": "warn"
+            },
+            "cooldown": {
+              "type": "string",
+              "default": "5m",
+              "description": "Go duration string; how long a tripped session stays tripped."
+            }
+          }
+        }
       }
     },
     "fallback": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "ttft_timeout": { "type": "string", "description": "Go duration string; first-byte timeout for an upstream request." }
+        "ttft_timeout": {
+          "type": "string",
+          "description": "Go duration string; first-byte timeout for an upstream request."
+        }
       }
     },
     "harnesses": {
@@ -132,9 +305,15 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": { "type": "boolean" },
-          "subagent_model": { "type": "string" },
-          "profile": { "type": "string" }
+          "enabled": {
+            "type": "boolean"
+          },
+          "subagent_model": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          }
         }
       }
     },
@@ -142,9 +321,16 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "dir": { "type": "string" },
-        "retention_days": { "type": "integer", "minimum": 1 },
-        "enabled": { "type": "boolean" }
+        "dir": {
+          "type": "string"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        }
       }
     }
   }

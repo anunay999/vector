@@ -93,6 +93,14 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("budget.on_breach: unknown value %q", c.Budget.OnBreach)
 	}
+	switch c.Guard.Thrash.Action {
+	case "", ThrashWarn, ThrashBlock:
+	default:
+		return fmt.Errorf("guard.thrash.action: unknown value %q (want warn or block)", c.Guard.Thrash.Action)
+	}
+	if c.Guard.Thrash.MinPromptTokens < 0 || c.Guard.Thrash.ColdRequests < 0 {
+		return fmt.Errorf("guard.thrash: min_prompt_tokens and cold_requests must not be negative")
+	}
 	return nil
 }
 

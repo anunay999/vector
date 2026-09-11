@@ -37,6 +37,11 @@ type Record struct {
 	EstCostUSD      float64 `json:"est_cost_usd,omitempty"`
 	Reason          string  `json:"reason,omitempty"`
 	Error           string  `json:"error,omitempty"`
+	// Guard names a circuit breaker that fired on this request, for example
+	// "thrash-warn" or "thrash-block".
+	Guard string `json:"guard,omitempty"`
+	// ToolSearch marks a request that used Claude Code's deferred tool loading.
+	ToolSearch bool `json:"tool_search,omitempty"`
 }
 
 // Recorder appends records to daily JSONL files under dir.

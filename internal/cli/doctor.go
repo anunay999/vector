@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/anunay999/vector/internal/config"
 	"github.com/anunay999/vector/internal/service"
@@ -118,8 +119,31 @@ func runChecks(cfg *config.Config) []check {
 		} else {
 			add("harness/"+a.Name(), "warn", "not wired; run 'vector "+shortName(a.Name())+" on'")
 		}
+		if a.Name() == "claude-code" && st.Enabled {
+			checks = append(checks, claudeContextChecks(st.Info)...)
+		}
 	}
 	return checks
+}
+
+// claudeContextChecks flags Claude Code settings that make a gateway session
+// re-send its whole tool inventory on every request or lose its 1M window.
+func claudeContextChecks(info map[string]string) []check {
+	var out []check
+	switch v := info["tool_search"]; {
+	case v == "":
+		out = append(out, check{Name: "claude/tool-search", Status: "warn",
+			Detail: "ENABLE_TOOL_SEARCH unset: Claude Code disables deferred tool loading behind a gateway URL and re-sends every MCP tool schema on every request; run 'vector claude on' to set ENABLE_TOOL_SEARCH=auto"})
+	case v == "false" || v == "0":
+		out = append(out, check{Name: "claude/tool-search", Status: "warn", Detail: "ENABLE_TOOL_SEARCH=" + v + " (deferred tool loading off)"})
+	default:
+		out = append(out, check{Name: "claude/tool-search", Status: "ok", Detail: "ENABLE_TOOL_SEARCH=" + v})
+	}
+	if m := info["model"]; strings.Contains(strings.ToLower(m), "[1m]") {
+		out = append(out, check{Name: "claude/1m-context", Status: "warn",
+			Detail: fmt.Sprintf("model %q: Claude Code only treats api.anthropic.com as 1M-entitled; behind a gateway the session can drop to a 200k auto-compact window, which loops when tool schemas exceed ~150k tokens. Pin it with CLAUDE_CODE_AUTO_COMPACT_WINDOW or keep the tool inventory small", m)})
+	}
+	return out
 }
 
 func shortName(harness string) string {

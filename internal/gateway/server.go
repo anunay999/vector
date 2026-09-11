@@ -45,9 +45,10 @@ type runtime struct {
 
 // Server is the gateway HTTP handler.
 type Server struct {
-	rt  atomic.Pointer[runtime]
-	gov *budget.Governor
-	log *slog.Logger
+	rt     atomic.Pointer[runtime]
+	gov    *budget.Governor
+	thrash *thrashGuard
+	log    *slog.Logger
 }
 
 func buildRuntime(cfg *config.Config, rec *telemetry.Recorder) *runtime {
@@ -66,7 +67,7 @@ func New(cfg *config.Config, rec *telemetry.Recorder, gov *budget.Governor, log 
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{gov: gov, log: log}
+	s := &Server{gov: gov, thrash: newThrashGuard(cfg.Guard.Thrash), log: log}
 	s.rt.Store(buildRuntime(cfg, rec))
 	return s
 }
@@ -81,6 +82,7 @@ func (s *Server) Apply(cfg *config.Config) error {
 	rec := telemetry.New(cfg.TelemetryDir(), cfg.Telemetry.Enabled)
 	s.rt.Store(buildRuntime(cfg, rec))
 	s.gov.Reconfigure(cfg.Budget.DailyUSD, cfg.Budget.PerProvider, cfg.Budget.OnBreach, cfg.Budget.MaxConcurrentSubagentsPerHarness)
+	s.thrash.reconfigure(cfg.Guard.Thrash)
 	s.log.Info("config reloaded", "routing", cfg.RoutingEnabled,
 		"providers", len(cfg.Providers), "models", len(cfg.Models), "roles", len(cfg.Roles))
 	return nil
@@ -241,6 +243,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	base := telemetry.Record{
 		Time: start, RequestID: requestID, Harness: harness, Session: session, Project: project,
 		RequestedModel: env.Model, InboundShape: string(shape), Stream: env.Stream,
+		ToolSearch: hasToolSearch(body),
 	}
 
 	var primary router.Decision
@@ -256,6 +259,24 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	}
 
 	attempts := []router.Decision{primary}
+
+	// Context-thrash breaker (skipped for side-channel endpoints). A tripped
+	// session is either blocked with an explanation or let through with a
+	// warning header, per guard.thrash.action.
+	if !nativeOnly {
+		if v := s.thrash.check(session); v.Tripped {
+			if v.Block {
+				w.Header().Set("Retry-After", "60")
+				rec := base
+				rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
+				rec.Reason, rec.Guard = primary.Reason, "thrash-block"
+				s.finish(rt.rec, w, shape, rec, http.StatusTooManyRequests, v.Detail)
+				return
+			}
+			w.Header().Set("X-Vector-Warning", v.Detail)
+			base.Guard = "thrash-warn"
+		}
+	}
 
 	// Budget pre-flight (skipped for side-channel endpoints).
 	if !nativeOnly {
@@ -313,11 +334,13 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			rec.Reason = fmt.Sprintf("%s (fallback #%d)", rec.Reason, i)
 		}
 
-		outBody, rerr := prepareBody(body, dec.UpstreamModel, dec.Provider.Type == config.ProviderAnthropic)
+		keepExtras := dec.Provider.Type == config.ProviderAnthropic
+		outBody, rerr := prepareBody(body, dec.UpstreamModel, keepExtras)
 		if rerr != nil {
 			lastErr = rerr
 			continue
 		}
+		hdr := upstreamHeaders(r.Header, keepExtras)
 		target := provider.Target{
 			ID:      dec.Provider.ID,
 			Type:    dec.Provider.Type,
@@ -326,7 +349,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			Native:  dec.Provider.Native,
 			Headers: dec.Provider.Headers,
 		}
-		upReq, berr := provider.BuildRequest(r.Context(), http.MethodPost, r.URL.Path, r.URL.RawQuery, outBody, r.Header, target)
+		upReq, berr := provider.BuildRequest(r.Context(), http.MethodPost, r.URL.Path, r.URL.RawQuery, outBody, hdr, target)
 		if berr != nil {
 			lastErr = berr
 			continue
@@ -373,6 +396,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		rec.OutputTokens = usage.OutputTokens
 		rec.CacheReadTokens = usage.CacheReadTokens
 		rec.EstCostUSD = cost
+		if !nativeOnly {
+			if tripped, n := s.thrash.observe(session, usage); tripped {
+				rec.Guard = "thrash-trip"
+				s.log.Warn("context thrash detected", "session", session, "harness", harness,
+					"cold_rebuilds", n, "prompt_tokens", usage.InputTokens+usage.CacheWriteTokens,
+					"action", rt.cfg.Guard.Thrash.Action)
+			}
+		}
 		if copyErr != nil {
 			rec.Error = copyErr.Error()
 			s.log.Debug("stream copy ended", "err", copyErr)
@@ -446,27 +477,6 @@ func costOf(d router.Decision, u llm.Usage) float64 {
 		float64(u.CacheWriteTokens)*d.Price.CacheWrite/1e6
 }
 
-// prepareBody replaces the top-level "model" field and, for non-Anthropic
-// upstreams, drops Anthropic-only request fields that third-party providers
-// reject. Today that is "context_management", which carries mid-conversation
-// effort updates (configuration_update) that only Anthropic models accept —
-// Claude Code sends it on continuation turns, so a cheap leaf would 400.
-func prepareBody(body []byte, model string, keepAnthropicExtras bool) ([]byte, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(body, &obj); err != nil {
-		return nil, err
-	}
-	raw, err := json.Marshal(model)
-	if err != nil {
-		return nil, err
-	}
-	obj["model"] = raw
-	if !keepAnthropicExtras {
-		delete(obj, "context_management")
-	}
-	return json.Marshal(obj)
-}
-
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	rt := s.rt.Load()
 	w.Header().Set("content-type", "application/json")
@@ -489,7 +499,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleModels advertises virtual + native models for harness discovery. The
+// handleModels advertises virtual, registry, and native models for harness discovery. The
 // payload carries both Anthropic and OpenAI discovery keys so it works for
 // either client.
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -509,6 +519,15 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, e := range s.rt.Load().reg.Entries() {
 		data = append(data, model{ID: e.ID, Type: "model", Object: "model", DisplayName: e.ID, Name: e.ID, OwnedBy: e.ProviderID})
+	}
+	// Native providers serve any real model id by passthrough; advertise at
+	// least their default so a harness that discovers models through the
+	// gateway (Claude Code with CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY) sees
+	// its own frontier model listed rather than a gateway with no Claude models.
+	for _, p := range s.rt.Load().cfg.Providers {
+		if p.Native && p.DefaultModel != "" {
+			data = append(data, model{ID: p.DefaultModel, Type: "model", Object: "model", DisplayName: p.DefaultModel, Name: p.DefaultModel, OwnedBy: p.ID})
+		}
 	}
 	first, last := "", ""
 	if len(data) > 0 {

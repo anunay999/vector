@@ -116,10 +116,19 @@ vector claude status
 ```
 
 `claude on` points new Claude Code sessions at the gateway, enables model
-discovery, and installs native subagent definitions under `~/.claude/agents`.
+discovery, re-enables Claude Code's deferred MCP tool loading
+(`ENABLE_TOOL_SEARCH=auto`, which the CLI turns off behind any non-Anthropic
+URL), and installs native subagent definitions under `~/.claude/agents`.
 It backs up the values it changes. Planner traffic is reverse-proxied to
 Anthropic with your **own** credential; subagent traffic goes to the cheap pool.
 Restart Claude Code after enabling or disabling the integration.
+
+Behind a gateway Claude Code also stops treating the account as 1M-entitled,
+and a `claude-opus-5` session on the resulting 200k auto-compact window will
+loop if its tool schemas alone exceed ~150k tokens. `vector doctor` flags both
+conditions, and the gateway's `guard.thrash` breaker warns or blocks a session
+caught in that loop. Read [docs/claude-code-context.md](docs/claude-code-context.md)
+before wiring a Claude Code with many MCP servers.
 
 Controls:
 
