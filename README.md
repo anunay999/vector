@@ -17,6 +17,41 @@ quota goes to the work that needs it.
 
 Vector supports macOS and Linux on Apple Silicon, Intel, and ARM.
 
+## What you can do
+
+Vector is a pass-through — you keep using Claude Code or Codex exactly as you do
+today. Only the model behind a request changes.
+
+**Keep the plan on your subscription; send the busywork to a cheap model.** Wire
+the harness once, then use it normally.
+
+```sh
+vector claude on      # or: vector codex on
+```
+
+The main session stays on your Claude/Codex plan. When the frontier model spawns
+a subagent — `vector-worker`, `vector-scout`, `vector-reviewer` — it runs on an
+open model (DeepSeek-V4.1-Flash, GLM-5.3-Flash, Kimi-K3), picked by role.
+
+**Redirect any existing model to another one.** Applied live at the gateway; no
+harness changes.
+
+```sh
+vector models map "claude-haiku*"  openrouter/z-ai/glm-5.3-flash
+vector models map "claude-sonnet*" openrouter/deepseek/deepseek-v4.1-flash
+vector models map "claude-opus*"   openrouter/deepseek/deepseek-v4.1-flash   # moves the trunk too
+```
+
+**Repoint an agent you already have.**
+
+```sh
+vector claude route scout            # scout    -> the scout role
+vector codex  route explorer worker  # explorer -> the worker role
+```
+
+Your prompts, tools, and MCP servers (Trove, Linear, and the rest) keep running
+natively — vector only chooses which model answers.
+
 ## Install
 
 One-line installer — downloads the release, verifies its checksum, installs to
