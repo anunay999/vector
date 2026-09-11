@@ -192,6 +192,16 @@ Keys: `q` quit, `p` pause, `r` refresh, `f` filter by role, `v` filter by
 provider, `a` clear filters. `vector top --once` prints a single frame for
 screenshots or CI logs; `--since` and `--interval` tune the window and refresh.
 
+Need to tell *which* of your running sessions is talking? `vector sessions`
+groups the same telemetry by client session — session id, checkout, roles,
+providers, cost, and last activity:
+
+```sh
+vector sessions                 # last 6h, most-recent first
+vector sessions --since 24h --json
+vector telemetry --project space2 --since 30m
+```
+
 ## How it works
 
 A request's model name resolves, strongest signal first, to a
@@ -199,8 +209,9 @@ A request's model name resolves, strongest signal first, to a
 
 1. an explicit registry model (`openrouter/z-ai/glm-5.3-flash`);
 2. an explicit role hint (`vector-worker`, or header `X-Vector-Role`);
-3. a `policies` rule matching the harness, traffic class, or model;
-4. otherwise native passthrough on your subscription.
+3. a `model_map` redirect for the inbound model id;
+4. a `policies` rule matching the harness, traffic class, or model;
+5. otherwise native passthrough on your subscription.
 
 Roles are installed as native subagents in each harness, so the frontier model
 chooses one by name using its own spawn tool:
@@ -217,6 +228,13 @@ chooses one by name using its own spawn tool:
 
 Vector never hosts, sandboxes, or monitors a subagent. Subagents run natively in
 the harness; the router only chooses the model and translates wire formats.
+
+Subagent traffic is detected **structurally**, not by model name: Claude Code
+tags spawned agents with `x-claude-code-agent-id` / `cc_is_subagent=true`, and
+Codex names the agent in `x-codex-turn-metadata`. So a subagent routes to the
+cheap role even when the harness asks for a frontier model. Every request is also
+attributed to its client session via `X-Claude-Code-Session-Id` (Claude Code) or
+`session-id` (Codex).
 
 ## Self-describing CLI
 
@@ -285,7 +303,7 @@ Two files, both mode `0600`:
 
 | File | Holds |
 |---|---|
-| `~/.config/vector/config.yaml` | providers, models, roles, policies, budget |
+| `~/.config/vector/config.yaml` | providers, models, roles, policies, model_map, budget |
 | `~/.config/vector/env` | secrets referenced as `${VAR}` |
 
 Prefer the typed commands over direct edits; they validate as they write and
@@ -300,6 +318,8 @@ vector config unset budget.per_provider
 vector models use worker openrouter/deepseek/deepseek-v4.1-flash   # change a role live
 vector models set openrouter/z-ai/glm-5.3 --in 1.007 --out 3.41    # add/update a model
 vector models remove openrouter/old/model
+vector models map claude-sonnet-5 openrouter/z-ai/glm-5.3-flash     # redirect an inbound model
+vector models map "claude-opus*"  openrouter/deepseek/deepseek-v4.1-flash
 
 vector env set OPENROUTER_API_KEY sk-or-...
 vector env list                 # values redacted
@@ -333,9 +353,11 @@ vector models [--json]
 vector models set <provider/model> [--tags …] [--context N] [--in F] [--out F]
 vector models remove <provider/model>
 vector models use <role> <target> [--append]
+vector models map <from> <to> | --remove <from>
 vector top [--once] [--since 24h] [--interval 1s]
 vector logs [--follow] [--lines N] [--path]
-vector telemetry [--since 24h] [--json] [--follow] [--role R] [--provider P]
+vector sessions [--since 6h] [--json]
+vector telemetry [--since 24h] [--json] [--follow] [--role R] [--provider P] [--session S] [--project P]
 vector spend [--since 24h] [--json]
 ```
 
