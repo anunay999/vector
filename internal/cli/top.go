@@ -268,29 +268,69 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
-	// Cost per day histogram.
+	// Cost per day: a scaled 14-day chart with a y-axis, plus the numbers that
+	// make the bars readable (today, seven-day average, peak day). Headline
+	// numbers drop from the right when the terminal is narrow.
 	b.WriteString(cBold + " COST / DAY" + cReset + cDim + " last 14d" + cReset)
 	if len(snap.Daily) > 0 {
-		costs := make([]float64, len(snap.Daily))
-		total, peak := 0.0, 0.0
+		n := len(snap.Daily)
+		costs := make([]float64, n)
+		peak, last7 := 0.0, 0.0
+		peakDay := snap.Daily[0].Date
 		for i, d := range snap.Daily {
 			costs[i] = d.Cost
-			total += d.Cost
 			if d.Cost > peak {
 				peak = d.Cost
+				peakDay = d.Date
+			}
+			if i >= n-7 {
+				last7 += d.Cost
 			}
 		}
-		fmt.Fprintf(&b, "   %stotal %s   peak %s%s\n", cDim, money(total), money(peak), cReset)
-		for _, row := range verticalBars(costs, 5) {
-			fmt.Fprintf(&b, "   %s%s%s\n", cGreen, row, cReset)
+		days7 := 7
+		if n < 7 {
+			days7 = n
+		}
+		num := func(v float64) string {
+			if v == 0 {
+				return "$0.00"
+			}
+			return money(v)
+		}
+		summary := joinFit([]string{
+			"today " + num(snap.Daily[n-1].Cost),
+			"7d avg " + num(last7/float64(days7)),
+			"peak " + peakDay.Format("01-02") + " " + num(peak),
+		}, width-23) // " COST / DAY" + " last 14d" + spacer
+		if summary != "" {
+			fmt.Fprintf(&b, "   %s%s%s\n", cDim, summary, cReset)
+		} else {
+			b.WriteString("\n")
+		}
+
+		top := num(peak)
+		axisW := utf8.RuneCountInString(top)
+		if axisW < 2 {
+			axisW = 2
+		}
+		rows := verticalBars(costs, 5)
+		for r, row := range rows {
+			label, joint := strings.Repeat(" ", axisW), "│"
+			switch r {
+			case 0:
+				label, joint = top, "┤"
+			case len(rows) - 1:
+				label, joint = "$0", "└"
+			}
+			fmt.Fprintf(&b, "  %s%*s%s %s%s%s\n", cDim, axisW, label, joint, cGreen, row, cReset)
 		}
 		first := snap.Daily[0].Date.Format("01-02")
-		last := snap.Daily[len(snap.Daily)-1].Date.Format("01-02")
-		pad := len(costs) - len(first) - len(last)
+		last := snap.Daily[n-1].Date.Format("01-02")
+		pad := n - utf8.RuneCountInString(first) - utf8.RuneCountInString(last)
 		if pad < 1 {
 			pad = 1
 		}
-		fmt.Fprintf(&b, "   %s%s%s%s%s\n", cDim, first, strings.Repeat(" ", pad), last, cReset)
+		fmt.Fprintf(&b, "%s%s%s%s%s%s\n", strings.Repeat(" ", axisW+4), cDim, first, strings.Repeat(" ", pad), last, cReset)
 	} else {
 		fmt.Fprintf(&b, "   %s(no data)%s\n", cDim, cReset)
 	}
@@ -478,6 +518,28 @@ func money(v float64) string {
 		return fmt.Sprintf("$%.5f", v)
 	}
 	return fmt.Sprintf("$%.4f", v)
+}
+
+// joinFit joins parts with " · ", dropping trailing parts that would not fit in
+// budget visible columns. It returns "" when even the first part is too wide.
+func joinFit(parts []string, budget int) string {
+	var out string
+	used := 0
+	for _, p := range parts {
+		w := utf8.RuneCountInString(p)
+		if out != "" {
+			w += 3 // " · "
+		}
+		if used+w > budget {
+			break
+		}
+		if out != "" {
+			out += " · "
+		}
+		out += p
+		used += w
+	}
+	return out
 }
 
 func ms(v int64) string {
