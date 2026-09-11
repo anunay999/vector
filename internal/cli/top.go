@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -209,6 +211,7 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		snap.Requests, humanInt(snap.Tokens()), cCyan, snap.TokensPerSec(), cReset,
 		colorCount(snap.Errors, cRed), colorCount(snap.Fallbacks, cYellow))
 	fmt.Fprintf(&b, " %s%.1f req/min%s   refreshed %s\n", cDim, snap.PerMinute(), cReset, snap.Generated.Format("15:04:05"))
+	b.WriteString(efficiencyLine(snap))
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
 	// Throughput sparklines.
@@ -315,17 +318,53 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 	}
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 
+	// Sessions: where the money went, and whether a session is thrashing. On a
+	// short terminal the table yields its rows to the recent feed.
+	sessions := stats.SortedSessions(snap.BySession)
+	if len(sessions) > 0 && (height <= 0 || height >= 40) {
+		projectW := clampInt(width-84, 12, 40)
+		b.WriteString(cBold + " SESSIONS" + cReset + cDim + " top by cost" + cReset + "\n")
+		fmt.Fprintf(&b, "  %-8s %-*s %5s %8s %6s %9s %9s %3s  %s\n",
+			"session", projectW, "project", "req", "off-plan", "cache", "cold-min", "cost", "err", "guard")
+		for i, ses := range sessions {
+			if i >= 5 {
+				break
+			}
+			cold := "-"
+			if ses.MinColdPrompt > 0 {
+				cold = humanInt(ses.MinColdPrompt)
+			}
+			guard := ses.Guard
+			if guard != "" {
+				guard = cRed + guard + cReset
+			}
+			fmt.Fprintf(&b, "  %-8s %-*s %5d %7.0f%% %5.0f%% %9s %9s %3s  %s\n",
+				shortSession(ses.ID), projectW, truncate(filepath.Base(ses.Project), projectW), ses.Requests,
+				ses.OffPlanPct(), ses.CacheHitPct(), cold, money(ses.Cost),
+				colorCount(ses.Errors, cRed), guard)
+		}
+		b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
+	}
+
 	// Recent. Cap the row count so a tall frame never exceeds the terminal height:
 	// a scroll on the alternate screen desyncs the cursor-home repaint.
 	recent := snap.Recent
+	showRecent := true
 	if height > 0 {
 		room := height - strings.Count(b.String(), "\n") - 3 // title + separator + keys
-		if room < 0 {
+		if room <= 0 {
+			// No row would fit: drop the whole section rather than print an
+			// empty header that pushes the key line off-screen.
+			showRecent = false
 			room = 0
 		}
 		if len(recent) > room {
 			recent = recent[:room]
 		}
+	}
+	if !showRecent {
+		fmt.Fprintf(&b, " %sq quit   p pause   r refresh   f role   v provider   a clear%s\n", cDim, cReset)
+		return finishFrame(b.String(), width, live)
 	}
 	b.WriteString(cBold + " RECENT" + cReset + "\n")
 	if len(snap.Recent) == 0 {
@@ -349,11 +388,15 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 
 	b.WriteString(cDim + strings.Repeat("─", width) + cReset + "\n")
 	fmt.Fprintf(&b, " %sq quit   p pause   r refresh   f role   v provider   a clear%s\n", cDim, cReset)
+	return finishFrame(b.String(), width, live)
+}
 
-	// Fit each line to the terminal width and, for the live view, end it with CRLF.
-	// Raw mode clears OPOST, so a lone \n moves down without returning to column 0
-	// and the whole frame staircases; \x1b[K erases any stale glyphs to end-of-line.
-	lines := strings.Split(b.String(), "\n")
+// finishFrame fits each line to the terminal width and, for the live view, ends
+// it with CRLF. Raw mode clears OPOST, so a lone \n moves down without returning
+// to column 0 and the whole frame staircases; \x1b[K erases any stale glyphs to
+// end-of-line.
+func finishFrame(s string, width int, live bool) string {
+	lines := strings.Split(s, "\n")
 	for i := range lines {
 		lines[i] = fitLine(lines[i], width)
 	}
@@ -361,6 +404,35 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		return "\x1b[H" + strings.Join(lines, "\x1b[K\r\n") + "\x1b[K\x1b[J"
 	}
 	return strings.Join(lines, "\n")
+}
+
+// efficiencyLine renders what routing bought and how the cache held. Savings
+// need a reference price on the native provider; without one the line says so
+// instead of inventing a number.
+func efficiencyLine(snap stats.Snapshot) string {
+	saved := cDim + "saved n/a (set providers[].reference_price)" + cReset
+	switch {
+	case snap.SavingsPriced > 0 && snap.SavingsUnpriced == 0:
+		saved = fmt.Sprintf("saved %s%s%s", cGreen, money(snap.SavingsUSD), cReset)
+	case snap.SavingsPriced > 0:
+		saved = fmt.Sprintf("saved %s≥%s%s %s(%d req unpriced)%s", cGreen, money(snap.SavingsUSD), cReset, cDim, snap.SavingsUnpriced, cReset)
+	}
+	guard := ""
+	if len(snap.GuardEvents) > 0 {
+		keys := make([]string, 0, len(snap.GuardEvents))
+		for k := range snap.GuardEvents {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s %d", k, snap.GuardEvents[k]))
+		}
+		guard = "  guard " + cRed + strings.Join(parts, ", ") + cReset
+	}
+	return fmt.Sprintf(" %s  off-plan tokens %s  cache hit %s%.0f%%%s  tool-search %s%.0f%%%s%s\n",
+		saved, humanInt(snap.OffPlanInputTokens+snap.OffPlanOutputTokens),
+		cCyan, snap.CacheHitPct(), cReset, cCyan, snap.ToolSearchPct(), cReset, guard)
 }
 
 func isNative(cfg *config.Config, providerID string) bool {

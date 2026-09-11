@@ -79,6 +79,25 @@ type Provider struct {
 	// Native marks a provider that must be called with the inbound Authorization
 	// header rather than a configured key.
 	Native bool `yaml:"native"`
+	// ReferencePrice is the API list price of the model this native provider
+	// would have served (its default_model). It is never used for billing: it
+	// only prices the tokens that routing sent elsewhere, so `vector top` and
+	// `vector spend` can report an estimated saving. Unset means "unknown", and
+	// the saving is reported as unavailable rather than guessed.
+	ReferencePrice *Price `yaml:"reference_price,omitempty"`
+}
+
+// InboundShape returns the wire shape a provider of this type serves natively,
+// which is the shape whose off-plan traffic it would otherwise have carried.
+func (p Provider) InboundShape() string {
+	switch p.Type {
+	case ProviderAnthropic:
+		return "anthropic"
+	case ProviderOpenAIResponses:
+		return "openai_responses"
+	default:
+		return "openai_chat"
+	}
 }
 
 // Price is per-million-token pricing in USD. CacheRead/CacheWrite are the

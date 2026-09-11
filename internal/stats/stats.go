@@ -14,12 +14,14 @@ import (
 
 // Group is an aggregate for one dimension value (a role, provider, or model).
 type Group struct {
-	Requests     int
-	InputTokens  int
-	OutputTokens int
-	Cost         float64
-	Errors       int
-	Latencies    []int64
+	Requests         int
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	Cost             float64
+	Errors           int
+	Latencies        []int64
 }
 
 // Add folds one record into the group.
@@ -27,6 +29,8 @@ func (g *Group) Add(r telemetry.Record) {
 	g.Requests++
 	g.InputTokens += r.InputTokens
 	g.OutputTokens += r.OutputTokens
+	g.CacheReadTokens += r.CacheReadTokens
+	g.CacheWriteTokens += r.CacheWriteTokens
 	g.Cost += r.EstCostUSD
 	if r.Status >= 400 || r.Error != "" {
 		g.Errors++
@@ -104,6 +108,23 @@ type Snapshot struct {
 	// Daily is a 14-day, oldest-first series for the cost histogram.
 	Daily  []Day
 	Recent []telemetry.Record
+
+	// Efficiency: what routing bought, and how the prompt cache held.
+	CacheReadTokens     int
+	CacheWriteTokens    int
+	ToolSearchRequests  int
+	OffPlanInputTokens  int // prompt tokens kept off the subscription
+	OffPlanOutputTokens int
+	// SavingsUSD is Σ(reference price − actual est. cost) over the off-plan
+	// requests whose inbound shape has a reference price. SavingsPriced /
+	// SavingsUnpriced count the requests that were / were not priced.
+	SavingsUSD      float64
+	SavingsPriced   int
+	SavingsUnpriced int
+	// GuardEvents counts circuit-breaker tags ("thrash-trip", ...).
+	GuardEvents map[string]int
+	// BySession groups by client session id; sessionless requests are omitted.
+	BySession map[string]*Session
 }
 
 // Tokens returns the total token count.
@@ -186,7 +207,7 @@ func Collect(cfg *config.Config, since time.Duration, recent int, f Filter) (Sna
 			}
 		}
 	}
-	snap := Aggregate(window, windowStart, native, recent)
+	snap := AggregateWith(window, windowStart, Options{Native: native, Recent: recent, Reference: ReferenceFrom(cfg)})
 	snap.Daily = dailySeries(records, HistogramDays)
 	return snap, nil
 }
@@ -215,8 +236,14 @@ func dailySeries(records []telemetry.Record, days int) []Day {
 	return out
 }
 
-// Aggregate computes a snapshot from records.
+// Aggregate computes a snapshot from records with no reference pricing.
 func Aggregate(records []telemetry.Record, since time.Time, nativeProviders map[string]bool, recent int) Snapshot {
+	return AggregateWith(records, since, Options{Native: nativeProviders, Recent: recent})
+}
+
+// AggregateWith computes a snapshot from records.
+func AggregateWith(records []telemetry.Record, since time.Time, opts Options) Snapshot {
+	nativeProviders, recent := opts.Native, opts.Recent
 	s := Snapshot{
 		Since:      since,
 		Generated:  time.Now(),
@@ -247,6 +274,7 @@ func Aggregate(records []telemetry.Record, since time.Time, nativeProviders map[
 		if strings.Contains(r.Reason, "fallback") {
 			s.Fallbacks++
 		}
+		s.foldEfficiency(r, opts)
 		if idx := int(r.Time.Sub(bucketStart) / BucketDur); idx >= 0 && idx < BucketCount {
 			bk := &buckets[idx]
 			bk.Requests++
