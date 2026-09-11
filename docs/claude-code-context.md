@@ -92,5 +92,9 @@ payload under the 200k-window threshold, or keep the window at 1M:
   verify with a throwaway session that the model keeps its `[1m]` suffix after
   a `/compact`. The CLI's setting is capped by the model's window, so this only
   helps while the model is still the 1M variant.
-- Watch `vector telemetry` for `tool_search: true` (deferral working) and
-  `guard: thrash-*` records.
+- Watch `vector top`: the efficiency line shows the tool-search share and any
+  `guard` events, and the sessions table shows each session's `cold-min`, the
+  smallest prompt it ever rebuilt from a cold cache. That number is the fixed
+  payload; it should fall from ~250k to well under 100k once deferral is on.
+  `vector telemetry` has the raw `tool_search`, `cache_write_tokens`, and
+  `guard` fields.
