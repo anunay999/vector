@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 )
@@ -31,6 +32,39 @@ func TestWorkingDir(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyStripsContextManagement(t *testing.T) {
+	body := []byte(`{"model":"vector-worker","context_management":{"edits":[{"type":"configuration_update"}]},"messages":[]}`)
+
+	// Non-Anthropic upstream: drop context_management, rewrite the model.
+	out, err := prepareBody(body, "deepseek/deepseek-v4.1-flash", false)
+	if err != nil {
+		t.Fatalf("prepareBody: %v", err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := obj["context_management"]; ok {
+		t.Fatal("context_management must be stripped for a non-Anthropic upstream")
+	}
+	var got string
+	if err := json.Unmarshal(obj["model"], &got); err != nil || got != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("model = %q (err %v), want deepseek/deepseek-v4.1-flash", got, err)
+	}
+	if _, ok := obj["messages"]; !ok {
+		t.Fatal("unrelated fields must be preserved")
+	}
+
+	// Native Anthropic upstream: keep it.
+	out, _ = prepareBody(body, "claude-opus-5", true)
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := obj["context_management"]; !ok {
+		t.Fatal("context_management must be kept for a native Anthropic upstream")
+	}
+}
+
 func TestIsSubagentRequest(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -54,5 +88,18 @@ func TestIsSubagentRequest(t *testing.T) {
 				t.Fatalf("isSubagentRequest = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIsIncompatible(t *testing.T) {
+	compat := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Mid-conversation reasoning effort (configuration_update) is not supported on deepseek/deepseek-v4.1-flash-20260910"}}`)
+	if !isIncompatible(compat) {
+		t.Fatal("provider shape rejection should be retryable")
+	}
+	if isIncompatible([]byte(`{"error":{"message":"invalid model name provided"}}`)) {
+		t.Fatal("a plain bad request must not be retryable")
+	}
+	if isIncompatible(nil) {
+		t.Fatal("empty body must not be retryable")
 	}
 }

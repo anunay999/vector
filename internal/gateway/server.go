@@ -317,7 +317,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			rec.Reason = fmt.Sprintf("%s (fallback #%d)", rec.Reason, i)
 		}
 
-		outBody, rerr := rewriteModel(body, dec.UpstreamModel)
+		outBody, rerr := prepareBody(body, dec.UpstreamModel, dec.Provider.Type == config.ProviderAnthropic)
 		if rerr != nil {
 			lastErr = rerr
 			continue
@@ -355,7 +355,8 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			resp.Body.Close()
 			retryable := resp.StatusCode >= 500 ||
 				resp.StatusCode == http.StatusTooManyRequests ||
-				isCreditError(peek)
+				isCreditError(peek) ||
+				(resp.StatusCode == http.StatusBadRequest && isIncompatible(peek))
 			if retryable && i < len(attempts)-1 {
 				lastErr = fmt.Errorf("upstream %s returned %d", dec.Provider.ID, resp.StatusCode)
 				rec.Status = resp.StatusCode
@@ -440,6 +441,33 @@ func isCreditError(body []byte) bool {
 	return false
 }
 
+// incompatibleMarkers indicate the upstream rejected the request SHAPE, not its
+// content — e.g. an Anthropic-only field sent to a third-party model. These are
+// retryable: the next candidate (the fallback chain ends at a native provider)
+// can still serve the request, so the harness session keeps working.
+var incompatibleMarkers = []string{
+	"is not supported",
+	"not supported on",
+	"does not support",
+	"reasoning is mandatory",
+	"unsupported",
+}
+
+// isIncompatible reports whether an error body is a provider-compatibility
+// rejection rather than a genuine bad request.
+func isIncompatible(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	s := strings.ToLower(string(body))
+	for _, m := range incompatibleMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -459,8 +487,12 @@ func costOf(d router.Decision, u llm.Usage) float64 {
 	return float64(u.InputTokens)*d.Price.In/1e6 + float64(u.OutputTokens)*d.Price.Out/1e6
 }
 
-// rewriteModel replaces the top-level "model" field, preserving all other fields.
-func rewriteModel(body []byte, model string) ([]byte, error) {
+// prepareBody replaces the top-level "model" field and, for non-Anthropic
+// upstreams, drops Anthropic-only request fields that third-party providers
+// reject. Today that is "context_management", which carries mid-conversation
+// effort updates (configuration_update) that only Anthropic models accept —
+// Claude Code sends it on continuation turns, so a cheap leaf would 400.
+func prepareBody(body []byte, model string, keepAnthropicExtras bool) ([]byte, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(body, &obj); err != nil {
 		return nil, err
@@ -470,6 +502,9 @@ func rewriteModel(body []byte, model string) ([]byte, error) {
 		return nil, err
 	}
 	obj["model"] = raw
+	if !keepAnthropicExtras {
+		delete(obj, "context_management")
+	}
 	return json.Marshal(obj)
 }
 
