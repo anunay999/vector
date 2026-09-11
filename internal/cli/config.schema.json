@@ -104,7 +104,7 @@
                 "description": "USD per million cache-write tokens."
               }
             },
-            "description": "API list price of this native provider's default_model, used only to estimate what off-plan (routed) traffic would have cost; never used for billing."
+            "description": "Pins the list price this native provider's traffic is measured against when a request names no priceable model (a virtual role). Unset: the built-in list price of default_model. Never used for billing."
           }
         }
       }
@@ -311,6 +311,32 @@
           }
         }
       }
+    },
+    "reference_prices": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "in": {
+            "type": "number",
+            "description": "USD per million input tokens."
+          },
+          "out": {
+            "type": "number",
+            "description": "USD per million output tokens."
+          },
+          "cache_read": {
+            "type": "number",
+            "description": "USD per million cached input tokens."
+          },
+          "cache_write": {
+            "type": "number",
+            "description": "USD per million cache-write tokens."
+          }
+        }
+      },
+      "description": "Overrides for the built-in API list-price table (USD per million) used only to estimate savings from routing. Keys are model ids as a harness sends them; `vector models reference` shows the effective table."
     },
     "fallback": {
       "type": "object",

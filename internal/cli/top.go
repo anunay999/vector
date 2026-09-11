@@ -410,7 +410,7 @@ func finishFrame(s string, width int, live bool) string {
 // need a reference price on the native provider; without one the line says so
 // instead of inventing a number.
 func efficiencyLine(snap stats.Snapshot) string {
-	saved := cDim + "saved n/a (set providers[].reference_price)" + cReset
+	saved := cDim + "saved n/a (see vector models reference)" + cReset
 	switch {
 	case snap.SavingsPriced > 0 && snap.SavingsUnpriced == 0:
 		saved = fmt.Sprintf("saved %s%s%s", cGreen, money(snap.SavingsUSD), cReset)

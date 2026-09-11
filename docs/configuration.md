@@ -76,16 +76,7 @@ providers:
 | `default_model` | Used when a virtual role targets a native provider (e.g. `vector-escalate`) |
 | `native` | Forward the caller's own Authorization/X-Api-Key (subscription passthrough) |
 | `headers` | Static headers merged into every upstream request |
-| `reference_price` | Native providers only. API list price of `default_model` (`in`/`out`/`cache_read`/`cache_write`, USD per million). Never used for billing: it prices the tokens routing kept off the subscription so `vector top` and `vector spend` can report an estimated saving. Unset means the saving shows as `n/a` rather than a guess. |
-
-```yaml
-  - id: anthropic-native
-    type: anthropic
-    base_url: https://api.anthropic.com
-    default_model: claude-opus-5
-    native: true
-    reference_price: {in: 15, out: 75, cache_read: 1.5, cache_write: 18.75}   # check current list prices
-```
+| `reference_price` | Native providers only. Pins the list price this provider's traffic is measured against when a request names no priceable model (a virtual role). Unset: the built-in list price of `default_model`. Never used for billing. |
 
 Common providers:
 
@@ -204,6 +195,31 @@ fallback:
   status to the harness, which owns retries.
 - Native (subscription) providers have no `price`, so they never count toward
   the dollar ceiling — they consume quota, which is the whole point.
+
+## Reference prices (savings)
+
+Vector estimates what routed traffic *would* have cost on the subscription's
+API list price and subtracts what it did cost. It ships a built-in table of
+Anthropic and OpenAI list prices for the models Claude Code and Codex ask for
+(`claude-opus-5`, `claude-sonnet-5`, `gpt-5.4`, `gpt-6-astra`, …), captured on
+the date `vector models reference` prints. Each off-plan request is priced by
+the model it **requested**; a request that named a virtual role (for example
+`vector-worker`) falls back to the native provider's `reference_price`, else the
+list price of its `default_model`.
+
+Prices move. Override or extend the table without waiting for a release:
+
+```yaml
+reference_prices:
+  claude-opus-5: {in: 5, out: 25, cache_read: 0.5, cache_write: 6.25}
+  gpt-5.4:       {in: 2.5, out: 15, cache_read: 0.25}
+```
+
+Keys accept any form a harness sends (`claude-sonnet-4-6[1m]`,
+`anthropic/claude-opus-4.6`, dated ids). `vector models reference <model>`
+shows how one id resolves; `vector models reference --json` dumps the effective
+table. These prices are never billed: they only feed the `saved` figure in
+`vector top` and `vector spend`.
 
 ## Guard
 
