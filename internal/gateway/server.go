@@ -395,6 +395,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		rec.InputTokens = usage.InputTokens
 		rec.OutputTokens = usage.OutputTokens
 		rec.CacheReadTokens = usage.CacheReadTokens
+		rec.CacheWriteTokens = usage.CacheWriteTokens
 		rec.EstCostUSD = cost
 		if !nativeOnly {
 			if tripped, n := s.thrash.observe(session, usage); tripped {

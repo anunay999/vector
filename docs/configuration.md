@@ -76,6 +76,16 @@ providers:
 | `default_model` | Used when a virtual role targets a native provider (e.g. `vector-escalate`) |
 | `native` | Forward the caller's own Authorization/X-Api-Key (subscription passthrough) |
 | `headers` | Static headers merged into every upstream request |
+| `reference_price` | Native providers only. API list price of `default_model` (`in`/`out`/`cache_read`/`cache_write`, USD per million). Never used for billing: it prices the tokens routing kept off the subscription so `vector top` and `vector spend` can report an estimated saving. Unset means the saving shows as `n/a` rather than a guess. |
+
+```yaml
+  - id: anthropic-native
+    type: anthropic
+    base_url: https://api.anthropic.com
+    default_model: claude-opus-5
+    native: true
+    reference_price: {in: 15, out: 75, cache_read: 1.5, cache_write: 18.75}   # check current list prices
+```
 
 Common providers:
 

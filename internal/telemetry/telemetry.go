@@ -20,23 +20,27 @@ type Record struct {
 	Session string `json:"session,omitempty"`
 	// Project is the working directory reported in the request's system prompt,
 	// which maps a request to a checkout even when no session id is present.
-	Project         string  `json:"project,omitempty"`
-	Role            string  `json:"role,omitempty"`
-	RequestedModel  string  `json:"requested_model"`
-	RoutedModel     string  `json:"routed_model"`
-	Provider        string  `json:"provider"`
-	InboundShape    string  `json:"inbound_shape"`
-	UpstreamShape   string  `json:"upstream_shape"`
-	Translated      bool    `json:"translated"`
-	Stream          bool    `json:"stream"`
-	Status          int     `json:"status"`
-	LatencyMS       int64   `json:"latency_ms"`
-	InputTokens     int     `json:"input_tokens,omitempty"`
-	OutputTokens    int     `json:"output_tokens,omitempty"`
-	CacheReadTokens int     `json:"cache_read_tokens,omitempty"`
-	EstCostUSD      float64 `json:"est_cost_usd,omitempty"`
-	Reason          string  `json:"reason,omitempty"`
-	Error           string  `json:"error,omitempty"`
+	Project         string `json:"project,omitempty"`
+	Role            string `json:"role,omitempty"`
+	RequestedModel  string `json:"requested_model"`
+	RoutedModel     string `json:"routed_model"`
+	Provider        string `json:"provider"`
+	InboundShape    string `json:"inbound_shape"`
+	UpstreamShape   string `json:"upstream_shape"`
+	Translated      bool   `json:"translated"`
+	Stream          bool   `json:"stream"`
+	Status          int    `json:"status"`
+	LatencyMS       int64  `json:"latency_ms"`
+	InputTokens     int    `json:"input_tokens,omitempty"`
+	OutputTokens    int    `json:"output_tokens,omitempty"`
+	CacheReadTokens int    `json:"cache_read_tokens,omitempty"`
+	// CacheWriteTokens is the prompt-cache write count; with CacheReadTokens it
+	// gives the cache hit ratio, and a large cold (read=0) value marks a prompt
+	// rebuilt from scratch.
+	CacheWriteTokens int     `json:"cache_write_tokens,omitempty"`
+	EstCostUSD       float64 `json:"est_cost_usd,omitempty"`
+	Reason           string  `json:"reason,omitempty"`
+	Error            string  `json:"error,omitempty"`
 	// Guard names a circuit breaker that fired on this request, for example
 	// "thrash-warn" or "thrash-block".
 	Guard string `json:"guard,omitempty"`
