@@ -1,6 +1,6 @@
-// Package router turns an inbound request plus policy into a concrete routing
-// decision: which provider, which base URL, which upstream model, and whether a
-// shape translation is required. It contains no network code, so it is fully
+// Package router turns an inbound request into a concrete routing decision:
+// which provider, which base URL, which upstream model, and whether a shape
+// translation is required. It contains no network code, so it is fully
 // unit-testable.
 package router
 
@@ -30,20 +30,16 @@ const (
 const RoleSubagent = "worker"
 
 // Known native model families. Requests for these are treated as primary
-// traffic and passed through untouched unless a policy overrides.
+// traffic and passed through untouched unless a model_map rule overrides.
 var nativePrefixes = []string{"claude", "opus", "sonnet", "haiku", "fable", "gpt-", "o1", "o3", "o4"}
 
 // Input is the routing-relevant projection of a request.
 type Input struct {
-	Harness        string
-	Shape          llm.Shape
-	Model          string
-	Headers        map[string]string
-	IsSubagent     bool
-	SubagentSignal bool
-	PromptChars    int
-	ToolCount      int
-	ThinkingBudget int
+	Harness    string
+	Shape      llm.Shape
+	Model      string
+	Headers    map[string]string
+	IsSubagent bool
 }
 
 // Decision is a resolved route.
@@ -59,8 +55,6 @@ type Decision struct {
 	Harness       string
 	Reason        string
 	Price         config.Price
-	// Candidates are ordered fallbacks to try if this decision fails.
-	Candidates []Decision
 }
 
 // Router resolves requests against config + registry.
@@ -93,42 +87,31 @@ func (r *Router) Route(in Input) (Decision, error) {
 
 	traffic, roleHint := r.classify(in)
 
-	// 2. An explicit role hint (virtual model or role header) is stronger than a
-	// broad traffic policy.
+	// 2. Agent mode, explicit: the request names a vector-<role> (or sends the
+	// role header). The parent chose the agent, so resolve its preference list.
 	if roleHint != "" {
 		d, err := r.forRole(in, roleHint, "role "+roleHint, traffic == TrafficSubagent)
 		if err == nil {
-			r.attachFallbacks(in, &d)
 			return d, nil
 		}
 	}
 
-	// 2b. An explicit model redirect (model_map) forces a concrete inbound model
-	// to a target, taking precedence over the broad traffic policy.
+	// 3. Model mode, explicit: model_map forces a concrete inbound model to a
+	// target. This is how main-session Claude/Codex models get routed.
 	if d, ok := r.modelMap(in, traffic); ok {
-		r.attachFallbacks(in, &d)
 		return d, nil
 	}
 
-	// 3. Policy default (harness/traffic/model match).
-	if route, ok := r.matchPolicy(in, traffic); ok {
-		d, err := r.routeTarget(in, route, traffic, "policy")
+	// 4. Agent mode, automatic: a structurally detected subagent goes to the
+	// worker agent when subagents.route is on (the default).
+	if traffic == TrafficSubagent && r.cfg.Subagents.Routes() {
+		d, err := r.forRole(in, RoleSubagent, "subagent -> "+RoleSubagent, true)
 		if err == nil {
-			r.attachFallbacks(in, &d)
 			return d, nil
 		}
 	}
 
-	// 4. Positive subagent signal with no role -> default subagent role.
-	if traffic == TrafficSubagent {
-		d, err := r.forRole(in, RoleSubagent, "subagent signal", true)
-		if err == nil {
-			r.attachFallbacks(in, &d)
-			return d, nil
-		}
-	}
-
-	// 5. Native/unknown model -> primary passthrough.
+	// 5. Everything else is subscription passthrough, unchanged.
 	return r.native(in, "primary passthrough")
 }
 
@@ -148,7 +131,7 @@ func (r *Router) classify(in Input) (string, string) {
 	if role := r.headerRole(in.Headers); role != "" {
 		return trafficFor(r.cfg.Roles[role]), role
 	}
-	if in.IsSubagent && in.SubagentSignal {
+	if in.IsSubagent {
 		return TrafficSubagent, ""
 	}
 	return TrafficPrimary, ""
@@ -174,9 +157,6 @@ func (r *Router) virtualRole(model string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if _, ok := r.cfg.Roles[name]; ok {
 		return name, true
-	}
-	if name == "auto" {
-		return r.cfg.Complexity.DefaultFloor, true
 	}
 	return "", false
 }
@@ -208,23 +188,6 @@ func (r *Router) modelMap(in Input, traffic string) (Decision, bool) {
 		}
 	}
 	return Decision{}, false
-}
-
-// matchPolicy returns the first matching policy's route.
-func (r *Router) matchPolicy(in Input, traffic string) (string, bool) {
-	for _, p := range r.cfg.Policies {
-		if p.Match.Harness != "" && !strings.EqualFold(p.Match.Harness, in.Harness) {
-			continue
-		}
-		if p.Match.Traffic != "" && p.Match.Traffic != traffic {
-			continue
-		}
-		if p.Match.Model != "" && !matchGlob(p.Match.Model, in.Model) {
-			continue
-		}
-		return p.Route, true
-	}
-	return "", false
 }
 
 // matchGlob supports an exact match or a trailing '*'.
@@ -269,7 +232,6 @@ func (r *Router) native(in Input, reason string) (Decision, error) {
 		Harness:       in.Harness,
 		Reason:        reason,
 	}
-	r.attachFallbacks(in, &d)
 	return d, nil
 }
 
@@ -384,16 +346,10 @@ func (r *Router) build(in Input, role string, p config.Provider, upstream, reaso
 }
 
 func (r *Router) forModel(in Input, id, reason string) (Decision, error) {
-	d, err := r.resolveModel(in, id, reason)
-	if err != nil {
-		return d, err
-	}
-	r.attachFallbacks(in, &d)
-	return d, nil
+	return r.resolveModel(in, id, reason)
 }
 
-// resolveModel builds a decision for a registry model without attaching
-// fallbacks (used to avoid recursion while building the fallback list).
+// resolveModel builds a decision for a registry model.
 func (r *Router) resolveModel(in Input, id, reason string) (Decision, error) {
 	e, _ := r.reg.Lookup(id)
 	p, ok := r.cfg.ProviderByID(e.ProviderID)
@@ -405,55 +361,6 @@ func (r *Router) resolveModel(in Input, id, reason string) (Decision, error) {
 		return Decision{}, fmt.Errorf("router: provider %q cannot serve shape %s", p.ID, in.Shape)
 	}
 	return d, nil
-}
-
-// attachFallbacks appends ordered alternative decisions from the fallback chain
-// and the primary role's remaining preferences.
-func (r *Router) attachFallbacks(in Input, primary *Decision) {
-	if primary == nil {
-		return
-	}
-	seen := map[string]bool{key(*primary): true}
-	add := func(d Decision, err error) {
-		if err != nil {
-			return
-		}
-		k := key(d)
-		if seen[k] {
-			return
-		}
-		seen[k] = true
-		primary.Candidates = append(primary.Candidates, d)
-	}
-	if primary.Role != "" {
-		if def, ok := r.cfg.Roles[primary.Role]; ok {
-			for _, target := range def.Prefer {
-				if _, isRole := r.cfg.Roles[target]; isRole {
-					continue
-				}
-				d, err := r.routeTarget(in, target, trafficFromDecision(*primary), "fallback")
-				add(d, err)
-			}
-		}
-	}
-	for _, role := range r.cfg.Fallback.Chain {
-		if role == primary.Role {
-			continue
-		}
-		d, err := r.forRole(in, role, "fallback -> "+role, true)
-		add(d, err)
-	}
-}
-
-func trafficFromDecision(d Decision) string {
-	if d.IsSubagent {
-		return TrafficSubagent
-	}
-	return TrafficPrimary
-}
-
-func key(d Decision) string {
-	return d.Provider.ID + "|" + d.UpstreamModel + "|" + string(d.UpstreamShape)
 }
 
 func (r *Router) nativeProviderFor(shape llm.Shape) (config.Provider, string, bool) {

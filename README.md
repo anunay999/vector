@@ -174,8 +174,8 @@ vector claude route --all --dry-run
 With no target, an agent is routed to the role of the same name, so you never
 write `route scout scout`. `route` edits only the model binding (frontmatter for
 Claude, the role file for Codex), backs the file up once, and leaves the prompt
-untouched. To force every subagent onto one model instead, set
-`force_subagent_model: true` on the harness.
+untouched. To route (or stop routing) all detected subagents as a group, use the
+`subagents.route` switch.
 
 ## Dashboard
 
@@ -205,13 +205,18 @@ vector telemetry --project space2 --since 30m
 ## How it works
 
 A request's model name resolves, strongest signal first, to a
-`(provider, base_url, api_key, upstream_model)` triple:
+`(provider, base_url, api_key, upstream_model)` triple, in one of two modes:
 
-1. an explicit registry model (`openrouter/z-ai/glm-5.3-flash`);
-2. an explicit role hint (`vector-worker`, or header `X-Vector-Role`);
-3. a `model_map` redirect for the inbound model id;
-4. a `policies` rule matching the harness, traffic class, or model;
-5. otherwise native passthrough on your subscription.
+1. **Agent routing (automatic)** — an explicit role (`vector-worker`, or header
+   `X-Vector-Role`); otherwise a structurally detected subagent routes to the
+   worker agent while `subagents.route` is on (the default).
+2. **Model routing (explicit)** — a `model_map` rule matches the inbound model
+   (e.g. `claude-haiku*`) and forces it to a role, a registry model, or a
+   provider.
+3. otherwise native passthrough on your subscription.
+
+There is no fallback pool: a routed request is served as asked or the upstream
+error surfaces, and the harness retries.
 
 Roles are installed as native subagents in each harness, so the frontier model
 chooses one by name using its own spawn tool:
@@ -303,7 +308,7 @@ Two files, both mode `0600`:
 
 | File | Holds |
 |---|---|
-| `~/.config/vector/config.yaml` | providers, models, roles, policies, model_map, budget |
+| `~/.config/vector/config.yaml` | providers, models, roles, model_map, subagents, budget |
 | `~/.config/vector/env` | secrets referenced as `${VAR}` |
 
 Prefer the typed commands over direct edits; they validate as they write and
@@ -327,15 +332,15 @@ vector config validate
 ```
 
 Providers are any OpenAI-compatible endpoint plus native Anthropic/OpenAI.
-Roles are ordered preference lists. Daily and per-provider budget ceilings,
-concurrency caps, and a fallback chain are all configurable. See
+Roles are ordered preference lists. Daily and per-provider budget ceilings and
+concurrency caps are configurable. There is no fallback pool: a routed request is
+served as asked or the upstream error surfaces. See
 [docs/configuration.md](docs/configuration.md) for every field, or
 `vector schema` for the machine-readable schema.
 
-If you run out of subscription credits, the planner can keep working on the cheap
-pool: Vector retries the next candidate on a `429`, `5xx`, or a credit/quota
-error, and you can force a cheap planner by reordering the `architect` role. See
-[docs/configuration.md](docs/configuration.md#degraded-mode-running-the-planner-on-a-cheap-model).
+To move the main session onto a cheap model, route its model explicitly with
+`vector models map`, or put a cheap model first in `roles.architect.prefer`. See
+[docs/configuration.md](docs/configuration.md#running-the-planner-on-a-cheap-model).
 
 ## CLI
 

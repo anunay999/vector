@@ -75,25 +75,28 @@ new binary needs `vector upgrade`.
 
 Two files, both mode 600:
 
-- `~/.config/vector/config.yaml` — providers, models, roles, policies, budget.
+- `~/.config/vector/config.yaml` — providers, models, roles, model_map, budget.
 - `~/.config/vector/env` — secrets referenced as `${VAR}`.
 
-A request's model name resolves to `(provider, base_url, api_key, upstream_model)`:
+A request's model name resolves to `(provider, base_url, api_key, upstream_model)`
+in one of two modes:
 
-1. explicit registry model (`openrouter/z-ai/glm-5.3-flash`)
-2. explicit role hint (`vector-worker`, or header `X-Vector-Role`)
-3. a `policies` rule match
-4. native passthrough (frontier subscription)
+- **Agent routing (automatic).** The request names a `vector-<role>` agent (or
+  sends `X-Vector-Role`), or is a structurally detected subagent while
+  `subagents.route` is on (the default). It resolves through the role's `prefer`
+  list.
+- **Model routing (explicit).** A `model_map` rule matches the inbound model and
+  forces it to a role, a registry model, or a provider. This is how main-session
+  Claude/Codex models get routed.
 
-Roles are exposed to harnesses as `vector-<role>`. `architect`/`lead` are
-`primary: true` and prefer native providers; subagent roles prefer cheap models.
-Providers are any OpenAI-compatible endpoint plus native Anthropic/OpenAI. Native
-providers use the caller's own credential (`native: true`); everything else uses
-a configured key. If the native plan is out of credits, the next candidate (the
-cheap pool) is tried automatically; reorder `roles.architect.prefer` to force a
-cheap planner.
+Anything else is native passthrough. There is no fallback pool: a request is
+served as routed or it fails, and the harness owns retries.
 
-Full reference: `docs/configuration.md`. Design: `docs/architecture-proposal.md`.
+Roles are exposed to harnesses as `vector-<role>`. Providers are any
+OpenAI-compatible endpoint plus native Anthropic/OpenAI. Native providers use the
+caller's own credential (`native: true`); everything else uses a configured key.
+
+Full reference: `docs/configuration.md`. Design: `docs/routing-design.md`.
 
 ## Hard constraints (do not violate)
 
@@ -128,7 +131,7 @@ internal/cli          commands (init, setup, top, logs, telemetry, agents, …)
 internal/config       load, validate, defaults, env file
 internal/llm          canonical provider-neutral types
 internal/registry     model registry
-internal/router       role resolution, policies, fallback candidates
+internal/router       role resolution, model_map, agent-mode detection
 internal/provider     upstream request building, auth, streaming
 internal/gateway      HTTP surface, usage/cost, budget
 internal/stats        aggregation for the dashboard and spend

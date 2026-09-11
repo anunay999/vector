@@ -76,20 +76,6 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	for i, pol := range c.Policies {
-		if pol.Route == "" {
-			return fmt.Errorf("policies[%d]: route is required", i)
-		}
-		switch pol.Match.Traffic {
-		case "", "primary", "subagent":
-		default:
-			return fmt.Errorf("policies[%d]: traffic must be primary or subagent (got %q)", i, pol.Match.Traffic)
-		}
-		if err := c.validateTarget(pol.Route, providers, models); err != nil {
-			return fmt.Errorf("policies[%d]: %w", i, err)
-		}
-	}
-
 	for i, rule := range c.ModelMap {
 		if strings.TrimSpace(rule.From) == "" {
 			return fmt.Errorf("model_map[%d]: from is required", i)
@@ -99,12 +85,6 @@ func (c *Config) Validate() error {
 		}
 		if err := c.validateTarget(rule.To, providers, models); err != nil {
 			return fmt.Errorf("model_map[%d]: %w", i, err)
-		}
-	}
-
-	if c.Complexity.DefaultFloor != "" {
-		if _, ok := c.Roles[c.Complexity.DefaultFloor]; !ok {
-			return fmt.Errorf("complexity.default_floor %q is not a configured role", c.Complexity.DefaultFloor)
 		}
 	}
 

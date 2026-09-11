@@ -92,13 +92,13 @@ func TestModelMapGlobMatches(t *testing.T) {
 	}
 }
 
-// A structurally detected subagent (cc_is_subagent) must route to the cheap
-// worker role even though its requested model is a frontier Claude id.
+// A structurally detected subagent must route to the cheap worker role even
+// though its requested model is a frontier Claude id.
 func TestSubagentSignalRoutesToWorker(t *testing.T) {
 	r := newRouter(t)
 	d, err := r.Route(Input{
 		Harness: "claude-code", Shape: llm.ShapeAnthropic, Model: "claude-sonnet-5",
-		IsSubagent: true, SubagentSignal: true,
+		IsSubagent: true,
 	})
 	if err != nil {
 		t.Fatalf("route: %v", err)
@@ -169,10 +169,9 @@ func TestRouteDisabledIsNative(t *testing.T) {
 func TestRouteSubagentSignal(t *testing.T) {
 	r := newRouter(t)
 	d, err := r.Route(Input{
-		Shape:          llm.ShapeAnthropic,
-		Model:          "claude-haiku",
-		IsSubagent:     true,
-		SubagentSignal: true,
+		Shape:      llm.ShapeAnthropic,
+		Model:      "claude-haiku",
+		IsSubagent: true,
 	})
 	if err != nil {
 		t.Fatalf("route: %v", err)

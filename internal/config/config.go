@@ -1,6 +1,7 @@
 // Package config loads, validates, and applies the vector configuration. The
 // configuration is the single source of truth: providers, the model registry,
-// role definitions, routing policies, budgets, and per-harness wiring.
+// agent roles (automatic agent routing), model redirects (explicit model
+// routing), budgets, and per-harness wiring.
 package config
 
 import (
@@ -30,9 +31,8 @@ type Config struct {
 	Providers      []Provider         `yaml:"providers"`
 	Models         []Model            `yaml:"models"`
 	Roles          map[string]Role    `yaml:"roles"`
-	Policies       []Policy           `yaml:"policies"`
 	ModelMap       []ModelRule        `yaml:"model_map"`
-	Complexity     Complexity         `yaml:"complexity"`
+	Subagents      Subagents          `yaml:"subagents"`
 	Budget         Budget             `yaml:"budget"`
 	Fallback       Fallback           `yaml:"fallback"`
 	Harnesses      map[string]Harness `yaml:"harnesses"`
@@ -103,38 +103,28 @@ type Role struct {
 	Description string   `yaml:"description" json:"description"`
 }
 
-// Policy maps a match to a role or explicit route.
-type Policy struct {
-	Match Match  `yaml:"match"`
-	Route string `yaml:"route"`
-}
-
 // ModelRule is one entry of the model_map redirect table: a concrete inbound
 // model id is forced to another target (role, registry model, or provider),
-// taking precedence over policies but not over an explicit registry model or a
-// virtual role. From supports a trailing '*' glob.
+// taking precedence over agent-mode routing but not over an explicit registry
+// model or a virtual role. From supports a trailing '*' glob.
 type ModelRule struct {
 	From string `yaml:"from"`
 	To   string `yaml:"to"`
 }
 
-// Match selects requests. Empty fields are wildcards. Model supports a trailing
-// '*' prefix glob.
-type Match struct {
-	Harness    string `yaml:"harness"`
-	Traffic    string `yaml:"traffic"` // primary | subagent
-	Complexity string `yaml:"complexity"`
-	Model      string `yaml:"model"`
+// Subagents controls agent-mode routing: when Route is unset or true, a
+// structurally detected subagent request is sent to the worker agent. This is
+// the only implicit routing; everything else is either an agent name or an
+// explicit model_map rule.
+type Subagents struct {
+	Route *bool `yaml:"route"`
 }
 
-// Complexity configures the fallback classifier (used for vector-auto and
-// unidentifiable subagent traffic).
-type Complexity struct {
-	DefaultFloor    string   `yaml:"default_floor"`
-	Signals         []string `yaml:"signals"`
-	CheapClassifier string   `yaml:"cheap_classifier"`
-	EscalateOn      []string `yaml:"escalate_on"`
-}
+// Routes reports whether detected subagents are routed to the worker agent.
+func (s Subagents) Routes() bool { return s.Route == nil || *s.Route }
+
+// boolPtr returns a pointer to b, for tri-state config fields.
+func boolPtr(b bool) *bool { return &b }
 
 // Budget configures spend and concurrency governance.
 type Budget struct {
@@ -146,19 +136,14 @@ type Budget struct {
 
 // Fallback configures resilience.
 type Fallback struct {
-	Cooldown    time.Duration `yaml:"cooldown"`
 	TTFTTimeout time.Duration `yaml:"ttft_timeout"`
-	Chain       []string      `yaml:"chain"`
 }
 
 // Harness holds per-harness enablement and defaults.
 type Harness struct {
 	Enabled       bool   `yaml:"enabled"`
 	SubagentModel string `yaml:"subagent_model"`
-	// ForceSubagentModel sets CLAUDE_CODE_SUBAGENT_MODEL_FORCE so every
-	// subagent uses SubagentModel, overriding per-agent model pinning.
-	ForceSubagentModel bool   `yaml:"force_subagent_model"`
-	Profile            string `yaml:"profile"`
+	Profile       string `yaml:"profile"`
 }
 
 // Telemetry configures the local JSONL request store.
@@ -240,25 +225,14 @@ func Default() *Config {
 			"researcher": {Tier: "smart", Prefer: []string{"openrouter/moonshotai/kimi-k3", "openrouter/google/gemini-3.8-flash"}, Description: "Long-context reading of docs and benchmarks."},
 			"escalate":   {Tier: "frontier", Prefer: []string{"anthropic-native", "openai-native"}, Description: "Hard or repeated-failure tasks. Frontier only."},
 		},
-		Policies: []Policy{
-			{Match: Match{Traffic: "primary"}, Route: "architect"},
-			{Match: Match{Traffic: "subagent"}, Route: "worker"},
-		},
-		Complexity: Complexity{
-			DefaultFloor:    "worker",
-			Signals:         []string{"thinking_budget", "tool_surface", "tokens", "task_verbs", "retries"},
-			CheapClassifier: "openrouter/z-ai/glm-5.3-flash",
-			EscalateOn:      []string{"tool_error", "no_progress", "explicit", "high_complexity"},
-		},
+		Subagents: Subagents{Route: boolPtr(true)},
 		Budget: Budget{
 			DailyUSD:                         25,
 			OnBreach:                         "downgrade",
 			MaxConcurrentSubagentsPerHarness: 8,
 		},
 		Fallback: Fallback{
-			Cooldown:    30 * time.Second,
 			TTFTTimeout: 30 * time.Second,
-			Chain:       []string{"worker", "reviewer", "escalate"},
 		},
 		Harnesses: map[string]Harness{
 			"claude-code": {Enabled: true, SubagentModel: "vector-worker"},
@@ -274,8 +248,8 @@ func Default() *Config {
 }
 
 // applyDefaults fills scalar fields that were omitted from a loaded file. It
-// intentionally does not inject providers, models, roles, or policies: those are
-// author-owned collections and a file that lists them is authoritative.
+// intentionally does not inject providers, models, roles, or model redirects:
+// those are author-owned collections and a file that lists them is authoritative.
 func (c *Config) applyDefaults() {
 	if c.Version == 0 {
 		c.Version = CurrentVersion
@@ -289,14 +263,8 @@ func (c *Config) applyDefaults() {
 	if c.Listen.Admin == "" {
 		c.Listen.Admin = DefaultAdminAddr
 	}
-	if c.Complexity.DefaultFloor == "" {
-		c.Complexity.DefaultFloor = "worker"
-	}
 	if c.Budget.OnBreach == "" {
 		c.Budget.OnBreach = "downgrade"
-	}
-	if c.Fallback.Cooldown == 0 {
-		c.Fallback.Cooldown = 30 * time.Second
 	}
 	if c.Fallback.TTFTTimeout == 0 {
 		c.Fallback.TTFTTimeout = 30 * time.Second
@@ -377,6 +345,6 @@ func (c *Config) PIDFile() string { return filepath.Join(Dir(), "gateway.pid") }
 
 // String renders a short human summary.
 func (c *Config) String() string {
-	return fmt.Sprintf("vector config v%d: %d providers, %d models, %d roles, %d policies",
-		c.Version, len(c.Providers), len(c.Models), len(c.Roles), len(c.Policies))
+	return fmt.Sprintf("vector config v%d: %d providers, %d models, %d roles, %d model_map rules",
+		c.Version, len(c.Providers), len(c.Models), len(c.Roles), len(c.ModelMap))
 }

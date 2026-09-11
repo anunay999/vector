@@ -73,9 +73,12 @@ func TestIsSubagentRequest(t *testing.T) {
 		want   bool
 	}{
 		{"claude agent id header", map[string]string{"X-Claude-Code-Agent-Id": "af8f6ae412b34d703"}, `{}`, true},
-		{"claude body marker", nil, `{"system":"...cc_is_subagent=true..."}`, true},
+		{"claude system string marker", nil, `{"system":"...cc_is_subagent=true..."}`, true},
+		{"claude system array marker", nil, `{"system":[{"type":"text","text":"...cc_is_subagent=true..."}]}`, true},
 		{"claude main thread", nil, `{"model":"claude-opus-5"}`, false},
+		{"marker in messages only", nil, `{"system":"hi","messages":[{"role":"user","content":"cc_is_subagent=true"}]}`, false},
 		{"codex root turn", map[string]string{"X-Codex-Turn-Metadata": `{"agent_name":"/root","session_id":"x"}`}, `{}`, false},
+		{"codex root turn spaced", map[string]string{"X-Codex-Turn-Metadata": `{"agent_name": "/root"}`}, `{}`, false},
 		{"codex named agent", map[string]string{"X-Codex-Turn-Metadata": `{"agent_name":"vector-worker"}`}, `{}`, true},
 	}
 	for _, tc := range cases {
@@ -88,18 +91,5 @@ func TestIsSubagentRequest(t *testing.T) {
 				t.Fatalf("isSubagentRequest = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestIsIncompatible(t *testing.T) {
-	compat := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Mid-conversation reasoning effort (configuration_update) is not supported on deepseek/deepseek-v4.1-flash-20260910"}}`)
-	if !isIncompatible(compat) {
-		t.Fatal("provider shape rejection should be retryable")
-	}
-	if isIncompatible([]byte(`{"error":{"message":"invalid model name provided"}}`)) {
-		t.Fatal("a plain bad request must not be retryable")
-	}
-	if isIncompatible(nil) {
-		t.Fatal("empty body must not be retryable")
 	}
 }

@@ -232,12 +232,11 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	subagent := isSubagentRequest(r, body)
 
 	input := router.Input{
-		Harness:        harness,
-		Shape:          shape,
-		Model:          env.Model,
-		IsSubagent:     subagent,
-		SubagentSignal: subagent,
-		Headers:        flattenHeaders(r.Header),
+		Harness:    harness,
+		Shape:      shape,
+		Model:      env.Model,
+		IsSubagent: subagent,
+		Headers:    flattenHeaders(r.Header),
 	}
 	base := telemetry.Record{
 		Time: start, RequestID: requestID, Harness: harness, Session: session, Project: project,
@@ -256,7 +255,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		return
 	}
 
-	attempts := append([]router.Decision{primary}, primary.Candidates...)
+	attempts := []router.Decision{primary}
 
 	// Budget pre-flight (skipped for side-channel endpoints).
 	if !nativeOnly {
@@ -276,10 +275,8 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			s.finish(rt.rec, w, shape, rec, http.StatusTooManyRequests, "vector: budget queue full")
 			return
 		case bd.Downgrade:
-			// Try alternate candidates before the frontier choice.
-			if len(primary.Candidates) > 0 {
-				attempts = append(append([]router.Decision{}, primary.Candidates...), primary)
-			}
+			// No fallback pool in the two-mode model: budget still gates spend,
+			// but there is no cheaper candidate to reorder ahead of the choice.
 		}
 	}
 
@@ -297,17 +294,16 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		defer release()
 	}
 
-	if nativeOnly {
-		attempts = attempts[:1]
-	}
-
 	var lastErr error
+	translationBlocked := false
 	for i, dec := range attempts {
 		if dec.Translate {
 			lastErr = fmt.Errorf("translation from %s to %s is not implemented yet (provider %s)",
 				shape, dec.UpstreamShape, dec.Provider.ID)
+			translationBlocked = true
 			continue
 		}
+		translationBlocked = false
 		rec := base
 		rec.Role, rec.RoutedModel, rec.Provider = dec.Role, dec.UpstreamModel, dec.Provider.ID
 		rec.UpstreamShape = string(dec.UpstreamShape)
@@ -347,25 +343,13 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			continue
 		}
 
-		// Handle upstream errors. Retry the next candidate on transient
-		// failures and on credit/quota exhaustion, so a harness whose native
-		// plan is out of credits degrades to the cheap pool automatically.
+		// Upstream errors surface to the harness unchanged. There is no
+		// fallback pool: a request is either served as routed or it fails, and
+		// the harness (which owns its own retry) decides what to do next.
 		if resp.StatusCode >= 400 {
 			peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 			resp.Body.Close()
-			retryable := resp.StatusCode >= 500 ||
-				resp.StatusCode == http.StatusTooManyRequests ||
-				isCreditError(peek) ||
-				(resp.StatusCode == http.StatusBadRequest && isIncompatible(peek))
-			if retryable && i < len(attempts)-1 {
-				lastErr = fmt.Errorf("upstream %s returned %d", dec.Provider.ID, resp.StatusCode)
-				rec.Status = resp.StatusCode
-				rec.Error = lastErr.Error()
-				rec.LatencyMS = time.Since(start).Milliseconds()
-				_ = rt.rec.Record(rec)
-				s.log.Warn("falling back", "provider", dec.Provider.ID, "status", resp.StatusCode)
-				continue
-			}
+			setVectorHeaders(w, requestID, dec, env.Model, rec.Reason)
 			provider.CopyHeaders(w, resp.Header)
 			w.WriteHeader(resp.StatusCode)
 			_, _ = w.Write(peek)
@@ -376,6 +360,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 			return
 		}
 
+		setVectorHeaders(w, requestID, dec, env.Model, rec.Reason)
 		capture := newCaptureWriter(w, captureBytes)
 		_, copyErr := provider.CopyResponse(capture, resp)
 		usage := extractUsage(resp.Header.Get("content-type"), capture.bytes())
@@ -401,16 +386,23 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	if lastErr != nil {
 		msg = lastErr.Error()
 	}
+	status := http.StatusBadGateway
+	if translationBlocked {
+		status = http.StatusNotImplemented
+	}
 	rec := base
 	rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
 	rec.Reason = primary.Reason
-	s.finish(rt.rec, w, shape, rec, http.StatusBadGateway, msg)
+	s.finish(rt.rec, w, shape, rec, status, msg)
 }
 
 // finish writes an error response and records it through the request's own
 // recorder, so a mid-flight config reload cannot split one request's records
 // across two recorders.
 func (s *Server) finish(recorder *telemetry.Recorder, w http.ResponseWriter, shape llm.Shape, rec telemetry.Record, status int, msg string) {
+	if rec.RequestID != "" {
+		w.Header().Set("X-Vector-Request-Id", rec.RequestID)
+	}
 	s.writeError(w, shape, status, msg)
 	rec.Status = status
 	rec.Error = msg
@@ -420,52 +412,16 @@ func (s *Server) finish(recorder *telemetry.Recorder, w http.ResponseWriter, sha
 	_ = recorder.Record(rec)
 }
 
-// creditMarkers indicate an upstream plan is out of credits or quota, which
-// should trigger a fallback to the next candidate.
-var creditMarkers = []string{
-	"credit balance", "insufficient", "quota", "billing", "payment required",
-	"not enough credits", "out of credits", "exceeded your current quota",
-}
-
-// isCreditError reports whether an error body indicates exhausted credits/quota.
-func isCreditError(body []byte) bool {
-	if len(body) == 0 {
-		return false
+// setVectorHeaders emits the request id on every response and, when the served
+// model differs from the one requested, the served-by triple, so a harness log
+// can reach `vector explain <id>` and a swapped model is never silent.
+func setVectorHeaders(w http.ResponseWriter, requestID string, dec router.Decision, requested, reason string) {
+	if requestID != "" {
+		w.Header().Set("X-Vector-Request-Id", requestID)
 	}
-	s := strings.ToLower(string(body))
-	for _, m := range creditMarkers {
-		if strings.Contains(s, m) {
-			return true
-		}
+	if dec.UpstreamModel != "" && dec.UpstreamModel != requested {
+		w.Header().Set("X-Vector-Served-By", dec.Provider.ID+"/"+dec.UpstreamModel+"; reason="+reason)
 	}
-	return false
-}
-
-// incompatibleMarkers indicate the upstream rejected the request SHAPE, not its
-// content — e.g. an Anthropic-only field sent to a third-party model. These are
-// retryable: the next candidate (the fallback chain ends at a native provider)
-// can still serve the request, so the harness session keeps working.
-var incompatibleMarkers = []string{
-	"is not supported",
-	"not supported on",
-	"does not support",
-	"reasoning is mandatory",
-	"unsupported",
-}
-
-// isIncompatible reports whether an error body is a provider-compatibility
-// rejection rather than a genuine bad request.
-func isIncompatible(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-	s := strings.ToLower(string(body))
-	for _, m := range incompatibleMarkers {
-		if strings.Contains(s, m) {
-			return true
-		}
-	}
-	return false
 }
 
 func truncate(s string, n int) string {
@@ -548,7 +504,6 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		id := "vector-" + name
 		data = append(data, model{ID: id, Type: "model", Object: "model", DisplayName: id, Name: id, OwnedBy: "vector"})
 	}
-	data = append(data, model{ID: "vector-auto", Type: "model", Object: "model", DisplayName: "vector-auto", Name: "vector-auto", OwnedBy: "vector"})
 	for _, e := range s.rt.Load().reg.Entries() {
 		data = append(data, model{ID: e.ID, Type: "model", Object: "model", DisplayName: e.ID, Name: e.ID, OwnedBy: e.ProviderID})
 	}
@@ -657,20 +612,46 @@ func workingDir(body []byte) string {
 }
 
 // isSubagentRequest reports whether a request was spawned by a harness subagent
-// (the Task/Agent tool) rather than the main thread. Claude Code tags these with
-// X-Claude-Code-Agent-Id and cc_is_subagent=true in its billing system block;
-// Codex names the agent in x-codex-turn-metadata. Detecting subagents
-// structurally means we do not depend on the requested model being a vector
-// role.
+// (the Task/Agent tool) rather than the main thread. Detection is header-first
+// and scoped: it reads only the harness's own agent header and its billing
+// system block, never user or assistant content (telemetry stays metadata-only).
 func isSubagentRequest(r *http.Request, body []byte) bool {
 	if strings.TrimSpace(r.Header.Get("X-Claude-Code-Agent-Id")) != "" {
 		return true
 	}
-	if bytes.Contains(body, []byte("cc_is_subagent=true")) {
+	if codexAgentRequest(r.Header.Get("X-Codex-Turn-Metadata")) {
 		return true
 	}
-	if v := r.Header.Get("X-Codex-Turn-Metadata"); v != "" && strings.Contains(v, `"agent_name"`) {
-		return !strings.Contains(v, `"agent_name":"/root"`)
+	return ccSystemBlockMarksSubagent(body)
+}
+
+// codexAgentRequest reports whether Codex's turn metadata names a spawned agent
+// rather than the root conversation. The metadata is JSON, so parse it instead
+// of substring-matching, which misreads `"agent_name": "/root"` when spaced.
+func codexAgentRequest(meta string) bool {
+	if strings.TrimSpace(meta) == "" {
+		return false
 	}
-	return false
+	var m struct {
+		AgentName string `json:"agent_name"`
+	}
+	if err := json.Unmarshal([]byte(meta), &m); err != nil {
+		return false
+	}
+	name := strings.TrimSpace(m.AgentName)
+	return name != "" && name != "/root"
+}
+
+// ccSystemBlockMarksSubagent looks for Claude Code's subagent marker only inside
+// the top-level "system" field (a string or an array of text blocks). Scanning
+// the whole body false-positives whenever a tool result contains the literal —
+// for example when the session reads vector's own source.
+func ccSystemBlockMarksSubagent(body []byte) bool {
+	var env struct {
+		System json.RawMessage `json:"system"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil || len(env.System) == 0 {
+		return false
+	}
+	return bytes.Contains(env.System, []byte("cc_is_subagent=true"))
 }

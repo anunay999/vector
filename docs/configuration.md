@@ -4,7 +4,7 @@ Vector has two files. Everything else is derived.
 
 | File | Purpose | Permissions |
 |---|---|---|
-| `~/.config/vector/config.yaml` | providers, models, roles, policies, budget | `600` |
+| `~/.config/vector/config.yaml` | providers, models, roles, model_map, subagents, budget | `600` |
 | `~/.config/vector/env` | secrets referenced as `${VAR}` in the config | `600` |
 
 Override the directory with `VECTOR_CONFIG_DIR`. Find the active paths with:
@@ -39,14 +39,17 @@ request model ──► role? ──► provider preference list ──► provi
                                                           model=z-ai/glm-5.3-flash
 ```
 
-Precedence, strongest first:
+Precedence, strongest first — two modes:
 
-1. **Explicit registry model** — the request names `openrouter/z-ai/glm-5.3-flash`.
-2. **Explicit role hint** — the request names `vector-worker`, or sends
-   `X-Vector-Role: reviewer`.
-3. **Policy** — a `policies` rule matches the harness/traffic/model.
-4. **Native passthrough** — anything else goes to the native provider for the
+1. **Agent routing (automatic).** The request names `vector-worker`, or sends
+   `X-Vector-Role: reviewer`; otherwise a structurally detected subagent routes
+   to the worker agent while `subagents.route` is on (the default).
+2. **Model routing (explicit).** A `model_map` rule matches the inbound model.
+3. **Native passthrough** — anything else goes to the native provider for the
    wire shape, unchanged.
+
+There is no fallback pool: a routed request is served as asked or the upstream
+error surfaces, and the harness retries.
 
 ## Providers
 
@@ -129,28 +132,30 @@ provider id. Native provider entries use `default_model` when the incoming model
 is virtual.
 
 Roles are exposed to harnesses as virtual models: role `worker` → `vector-worker`
-(alias `vector/worker`). `vector-auto` resolves to `complexity.default_floor`.
+(alias `vector/worker`).
 
-## Policies
+## Agent routing (`subagents`)
 
-Policies are defaults applied when there is no explicit role hint. Empty fields
-are wildcards; `model` supports a trailing `*`.
+Agent mode is automatic and has one switch: whether a structurally detected
+subagent is routed through the worker agent.
 
 ```yaml
-policies:
-  - {match: {traffic: primary},  route: architect}
-  - {match: {traffic: subagent}, route: worker}
-  - {match: {harness: codex, traffic: subagent}, route: reviewer}
-  - {match: {model: "vector-*"}, route: worker}
+subagents:
+  route: true      # default; set false to pass subagents through untouched
 ```
+
+Detection is header-first and scoped: Claude Code's `X-Claude-Code-Agent-Id` /
+its billing system block, and Codex's `x-codex-turn-metadata`. It never inspects
+message content. An explicit `vector-*` role still wins over the default, and a
+`model_map` rule wins over both.
 
 ## Model redirects (`model_map`)
 
-`model_map` forces a concrete inbound model to another target — the "say it like
-a sentence" redirect. It is an ordered table; the first matching `from` wins,
+`model_map` forces a concrete inbound model to another target — the explicit
+model-routing mode. It is an ordered table; the first matching `from` wins,
 `from` supports a trailing `*`, and `to` is a role, a registry model, or a
-provider. It takes precedence over policies, but not over an explicit registry
-model or a `vector-*` role.
+provider. It takes precedence over agent-mode routing, but not over an explicit
+registry model or a `vector-*` role.
 
 ```yaml
 model_map:
@@ -169,25 +174,24 @@ Note this applies to whatever traffic names that model — including the main
 session if it runs `claude-opus-5`. Use it deliberately: it moves the "trunk",
 not just the leaves.
 
-## Budget and fallback
+## Budget
 
 ```yaml
 budget:
   daily_usd: 25
   per_provider: {openrouter: 20, deepseek: 5}
-  on_breach: downgrade              # downgrade | queue | stop
+  on_breach: queue                   # downgrade | queue | stop
   max_concurrent_subagents_per_harness: 8
 
 fallback:
-  cooldown: 30s
-  ttft_timeout: 30s
-  chain: [worker, reviewer, escalate]
+  ttft_timeout: 30s                  # first-byte timeout for an upstream request
 ```
 
-- `downgrade` tries the cheaper fallback chain before the frontier choice.
 - `queue` returns `429` with `Retry-After`; `stop` rejects.
-- On upstream `5xx`/`429`/transport error, Vector retries the next candidate in
-  `chain` transparently.
+- `downgrade` is accepted for compatibility but has no cheaper pool to reorder
+  into in the two-mode model; prefer `queue` or `stop`.
+- There is no fallback chain. A routed request that fails returns the upstream
+  status to the harness, which owns retries.
 - Native (subscription) providers have no `price`, so they never count toward
   the dollar ceiling — they consume quota, which is the whole point.
 
@@ -236,32 +240,23 @@ Baseten while hard work escalates to native Claude.
 **CI / headless.** `vector serve` in a container, keys from environment
 variables, `daily_usd` for a hard ceiling, `on_breach: stop`.
 
-## Degraded mode: running the planner on a cheap model
+## Running the planner on a cheap model
 
-If you run out of Claude credits, the *planner* can run on a cheap model too —
-Claude Code stays pointed at Vector (that is what `vector claude on` does), and
-Vector decides where the main-session traffic goes.
+The main session stays on your subscription unless you route it explicitly.
+There is no automatic failover: if the subscription provider returns an error,
+the error surfaces and the harness retries.
 
-**Automatic.** Keep native first and let Vector fail over. On a `429`, `5xx`, or
-a credit/quota error from the native provider, Vector retries the next candidate
-in the role's preference list and the `fallback.chain`. With the default chain
-(`worker → reviewer → escalate`), a planner that is out of credits lands on
-GLM‑5.3‑Flash / Kimi‑K3 automatically and the session keeps going:
+**Model mode.** A `model_map` rule moves the main-session model:
 
-```yaml
-roles:
-  architect:
-    prefer: [anthropic-native, openrouter/z-ai/glm-5.3, openrouter/moonshotai/kimi-k3]
-fallback:
-  chain: [worker, reviewer, escalate]
+```sh
+vector models map "claude-sonnet*" openrouter/z-ai/glm-5.3-flash
 ```
 
-**Forced.** To run the planner on a cheap model unconditionally, put it first:
+**Agent mode.** Put a cheap model first in the role the planner resolves:
 
 ```sh
 vector config set roles.architect.prefer \
-  '[openrouter/z-ai/glm-5.3, openrouter/moonshotai/kimi-k3, anthropic-native]'
-vector restart
+  '[openrouter/z-ai/glm-5.3, anthropic-native]'
 ```
 
 Then verify with `vector spend` (the architect rows should show the cheap
@@ -270,11 +265,11 @@ provider) and `vector doctor`.
 Caveats: a cheap model as the main agent is a *degraded* mode — multi-step tool
 use and long-context reliability are weaker than Claude/Codex, and harness
 features that assume Anthropic semantics may behave differently. Prefer it as a
-fallback rather than the everyday default.
+deliberate choice rather than the everyday default.
 
 For **Codex**, the main session is native unless you route it through Vector.
 Add a top-level provider to the managed overlay or run the main session under
-the `vector` profile with its provider set, then the same fallback applies.
+the `vector` profile with its provider set, then the same rules apply.
 
 ## Existing agents in your harness
 
@@ -296,9 +291,8 @@ With no target, an agent routes to the role of the same name. `route` edits only
 the model binding (frontmatter for Claude, the role file for Codex), backs the
 file up once, and leaves the prompt intact.
 
-If you would rather force every subagent onto one model without editing agents,
-set `force_subagent_model` on the harness; it writes
-`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` and overrides per-agent pinning.
+To route or stop routing all detected subagents as a group, set
+`subagents.route`. Individual agents bound to a `vector-*` model always route.
 
 ## Logs and telemetry
 

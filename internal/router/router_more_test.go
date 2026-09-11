@@ -3,7 +3,6 @@ package router
 import (
 	"testing"
 
-	"github.com/anunay999/vector/internal/config"
 	"github.com/anunay999/vector/internal/llm"
 )
 
@@ -21,48 +20,40 @@ func TestVirtualEscalateUsesNativeDefaultModel(t *testing.T) {
 	}
 }
 
-func TestPolicyOverrideForSubagent(t *testing.T) {
+// Agent mode, automatic: a structurally detected subagent routes to the worker
+// agent when subagents.route is on (the default).
+func TestSubagentFlagRoutesToWorker(t *testing.T) {
 	r := newRouter(t)
-	// Add a harness-scoped policy that sends codex subagents to the reviewer.
-	r.cfg.Policies = append([]config.Policy{{
-		Match: config.Match{Harness: "codex", Traffic: "subagent"},
-		Route: "reviewer",
-	}}, r.cfg.Policies...)
-
-	d, err := r.Route(Input{Harness: "codex", Shape: llm.ShapeAnthropic, Model: "claude-haiku", IsSubagent: true, SubagentSignal: true})
+	d, err := r.Route(Input{Harness: "codex", Shape: llm.ShapeAnthropic, Model: "claude-haiku", IsSubagent: true})
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if d.Role != "reviewer" {
-		t.Fatalf("role = %q, want reviewer from policy", d.Role)
+	if d.Role != "worker" {
+		t.Fatalf("role = %q, want worker", d.Role)
+	}
+	if d.Provider.ID != "openrouter" {
+		t.Fatalf("provider = %q, want openrouter", d.Provider.ID)
 	}
 }
 
-func TestFallbackCandidatesArePopulated(t *testing.T) {
+// Turning the flag off makes a detected subagent a plain subscription
+// passthrough.
+func TestSubagentFlagOffPassesThrough(t *testing.T) {
 	r := newRouter(t)
-	d, err := r.Route(Input{Harness: "claude-code", Shape: llm.ShapeAnthropic, Model: "vector-worker"})
+	off := false
+	r.cfg.Subagents.Route = &off
+	d, err := r.Route(Input{Harness: "codex", Shape: llm.ShapeAnthropic, Model: "claude-haiku", IsSubagent: true})
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if len(d.Candidates) == 0 {
-		t.Fatal("expected fallback candidates")
-	}
-	// The primary is DeepSeek V4.1 Flash; a candidate should be the next worker
-	// preference (GLM).
-	found := false
-	for _, c := range d.Candidates {
-		if c.UpstreamModel == "z-ai/glm-5.3-flash" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected glm fallback, got %+v", d.Candidates)
+	if d.Provider.ID != "anthropic-native" {
+		t.Fatalf("provider = %q, want anthropic-native", d.Provider.ID)
 	}
 }
 
-func TestExplicitModelBypassesPolicy(t *testing.T) {
+// Model mode: an explicit registry model is honored, never swapped.
+func TestExplicitModelIsHonored(t *testing.T) {
 	r := newRouter(t)
-	r.cfg.Policies = []config.Policy{{Match: config.Match{Traffic: "primary"}, Route: "architect"}}
 	d, err := r.Route(Input{Shape: llm.ShapeAnthropic, Model: "openrouter/moonshotai/kimi-k3"})
 	if err != nil {
 		t.Fatalf("route: %v", err)

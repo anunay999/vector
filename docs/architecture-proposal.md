@@ -1,6 +1,9 @@
 # Vector — Intelligent subagent model router for any harness
 
-**Status:** proposal / design discussion
+**Status:** proposal / design discussion — **routing superseded** by
+`docs/routing-design.md` (two modes: agent routing and explicit `model_map`).
+Retained as historical context; the `policies` / `complexity` / `fallback.chain`
+sections no longer describe the implementation.
 **Reference implementation studied:** `baseten-switch` v0.3.0 (installed locally), plus `claude-code-router` (CCR).
 
 ---

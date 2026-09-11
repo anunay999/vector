@@ -1,7 +1,7 @@
 // Package registry indexes the configured models and resolves the namespaced
-// identifiers used by roles and policies. It is deliberately separate from
-// routing: the router asks the registry "what can serve this target?", and the
-// registry answers with provider + upstream model + capability tags.
+// identifiers used by roles and model_map rules. It is deliberately separate
+// from routing: the router asks the registry "what can serve this target?", and
+// the registry answers with provider + upstream model + capability tags.
 package registry
 
 import (

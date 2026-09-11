@@ -165,9 +165,10 @@ func TestModelsDiscovery(t *testing.T) {
 	}
 }
 
-// TestFallbackOnCreditError verifies that an out-of-credits response from the
-// native provider falls back to the cheap pool, so the planner keeps working.
-func TestFallbackOnCreditError(t *testing.T) {
+// TestMainSessionErrorSurfaces verifies that a credit/transient failure on a
+// main-session request is surfaced unchanged, never silently moved to a cheap
+// model. The harness owns its own retry.
+func TestMainSessionErrorSurfaces(t *testing.T) {
 	var seen []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -176,13 +177,8 @@ func TestFallbackOnCreditError(t *testing.T) {
 		var model string
 		_ = json.Unmarshal(env["model"], &model)
 		seen = append(seen, model)
-		if model == "claude-opus-5" {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API."}}`))
-			return
-		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_1","usage":{"input_tokens":1,"output_tokens":1}}`))
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API."}}`))
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -205,14 +201,14 @@ func TestFallbackOnCreditError(t *testing.T) {
 		t.Fatalf("request: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 after credit fallback", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want the upstream 400 surfaced", resp.StatusCode)
 	}
-	if len(seen) < 2 {
-		t.Fatalf("expected a fallback attempt, saw %v", seen)
+	if len(seen) != 1 || seen[0] != "claude-opus-5" {
+		t.Fatalf("main-session request must not fall through, saw %v", seen)
 	}
-	if seen[len(seen)-1] == "claude-opus-5" {
-		t.Fatalf("did not fall through on credit error: %v", seen)
+	if resp.Header.Get("X-Vector-Request-Id") == "" {
+		t.Fatal("expected X-Vector-Request-Id on the response")
 	}
 }
 
@@ -320,9 +316,9 @@ func TestCountTokensGoesNativeNotCheap(t *testing.T) {
 	}
 }
 
-// TestFallbackOnUpstreamError verifies that a 5xx from the primary cheap model
-// transparently retries the next candidate.
-func TestFallbackOnUpstreamError(t *testing.T) {
+// TestSubagentErrorSurfaces verifies that a 5xx from the routed model surfaces
+// rather than silently swapping models: there is no fallback pool.
+func TestSubagentErrorSurfaces(t *testing.T) {
 	var seen []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -331,12 +327,7 @@ func TestFallbackOnUpstreamError(t *testing.T) {
 		var model string
 		_ = json.Unmarshal(env["model"], &model)
 		seen = append(seen, model)
-		if model == "deepseek/deepseek-v4.1-flash" {
-			http.Error(w, "boom", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_1","usage":{"input_tokens":1,"output_tokens":1}}`))
+		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -359,13 +350,10 @@ func TestFallbackOnUpstreamError(t *testing.T) {
 		t.Fatalf("request: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 after fallback", resp.StatusCode)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want the upstream 500 surfaced", resp.StatusCode)
 	}
-	if len(seen) < 2 {
-		t.Fatalf("expected fallback attempt, saw %v", seen)
-	}
-	if seen[len(seen)-1] == "deepseek/deepseek-v4.1-flash" {
-		t.Fatalf("did not fall through: %v", seen)
+	if len(seen) != 1 || seen[0] != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("expected a single attempt on the routed model, saw %v", seen)
 	}
 }

@@ -60,7 +60,7 @@ func newModelsMapCmd() *cobra.Command {
 		Use:   "map [<from> <to>] [--remove <from>]",
 		Short: "Show, add, or remove inbound model redirects",
 		Long: "Model redirects force a concrete inbound model to a target (a role,\n" +
-			"registry model, or provider), taking precedence over policies.\n" +
+			"registry model, or provider). This is the explicit model-routing mode.\n" +
 			"Examples:\n" +
 			"  vector models map claude-opus-5 openrouter/deepseek/deepseek-v4.1-flash\n" +
 			"  vector models map 'claude-opus*' openrouter/moonshotai/kimi-k3\n" +

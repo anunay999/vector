@@ -55,10 +55,10 @@ func TestGetSetPath(t *testing.T) {
 		t.Fatalf("got %v, want smart", v)
 	}
 	// Creating a missing intermediate map.
-	if err := setPath(m, []string{"complexity", "default_floor"}, "worker"); err != nil {
+	if err := setPath(m, []string{"subagents", "route"}, true); err != nil {
 		t.Fatalf("set new: %v", err)
 	}
-	if v, _ := getPath(m, []string{"complexity", "default_floor"}); v != "worker" {
+	if v, _ := getPath(m, []string{"subagents", "route"}); v != true {
 		t.Fatalf("got %v", v)
 	}
 }
