@@ -154,3 +154,27 @@ func TestFitLineANSI(t *testing.T) {
 		t.Fatalf("truncated styled line must reset styling")
 	}
 }
+
+func TestFrameRendersEfficiencyAndSessions(t *testing.T) {
+	cfg := config.Default()
+	now := time.Now()
+	native := map[string]bool{"anthropic-native": true}
+	records := []telemetry.Record{
+		{Time: now, Session: "28b8e8a4-23c2-4afb-8604-de878fe83f93", Project: "/home/anunay/dev/space", Provider: "anthropic-native", InboundShape: "anthropic", Status: 200, InputTokens: 2, CacheWriteTokens: 218527, Guard: "thrash-trip"},
+		{Time: now, Session: "28b8e8a4-23c2-4afb-8604-de878fe83f93", Provider: "openrouter", InboundShape: "anthropic", Status: 200, InputTokens: 400000, EstCostUSD: 0.12, ToolSearch: true},
+	}
+	snap := stats.AggregateWith(records, now.Add(-time.Hour), stats.Options{Native: native})
+	out := stripANSI(frame(cfg, snap, nil, 120, 60, true, false, false, stats.Filter{}))
+	for _, want := range []string{"saved n/a", "off-plan tokens 400.0k", "cache hit 0%", "tool-search 50%", "guard thrash-trip 1", "SESSIONS", "space", "218.5k", "thrash-trip"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("frame missing %q:\n%s", want, out)
+		}
+	}
+	// With a reference price the saving is a number.
+	snap = stats.AggregateWith(records, now.Add(-time.Hour), stats.Options{Native: native,
+		Reference: map[string]config.Price{"anthropic": {In: 15, Out: 75}}})
+	out = stripANSI(frame(cfg, snap, nil, 120, 60, true, false, false, stats.Filter{}))
+	if !strings.Contains(out, "saved $5.88") {
+		t.Fatalf("expected priced saving in frame:\n%s", out)
+	}
+}

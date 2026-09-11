@@ -197,6 +197,17 @@ sparklines, a model-mix bar chart, a **14-day cost-per-day histogram**, an
 off-plan gauge, per-role latency percentiles and average output tok/s, and the
 most recent requests.
 
+An **efficiency line** answers "what did routing buy me": estimated saving
+against the API list price of the model each request asked for (a built-in
+table covers current Claude and Codex models; `vector models reference` shows
+it, `reference_prices` in config overrides it),
+tokens kept off the subscription, prompt-cache hit ratio, share of requests
+using Claude Code's deferred tool loading, and any circuit-breaker events. A
+**sessions table** ranks client sessions by cost with their off-plan share,
+cache hit ratio, smallest cold prompt (the session's fixed payload floor), and
+guard flag, so a session caught in a compaction loop is visible at a glance.
+`vector spend` prints the same efficiency figures, also as `--json`.
+
 Keys: `q` quit, `p` pause, `r` refresh, `f` filter by role, `v` filter by
 provider, `a` clear filters. `vector top --once` prints a single frame for
 screenshots or CI logs; `--since` and `--interval` tune the window and refresh.
