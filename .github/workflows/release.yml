@@ -4,6 +4,22 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. v0.2.8 (ignored for dry runs)"
+        required: true
+        type: string
+      ref:
+        description: "Git ref to tag and release"
+        required: false
+        default: main
+        type: string
+      dry_run:
+        description: "Build a snapshot only (no tag, no GitHub release)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -15,14 +31,42 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.x"
+
       - name: Test
         run: go test ./...
+
+      # Manual path: create and push the tag here. Pushing with GITHUB_TOKEN does
+      # not re-trigger this workflow, so the build below runs exactly once.
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="$VERSION"
+          case "$tag" in v*) ;; *) tag="v$tag" ;; esac
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+            echo "::error::invalid version '$tag' (expected vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          echo "tagged $tag at $(git rev-parse --short HEAD)"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: ${{ inputs.dry_run && 'release --snapshot --clean' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
