@@ -82,6 +82,8 @@ func TestEfficiencyAggregates(t *testing.T) {
 		{Time: now.Add(-5 * time.Minute), Session: "s1", Provider: "anthropic-native", InboundShape: "anthropic", Status: 200, InputTokens: 2, CacheWriteTokens: 90000},
 		// Failed requests never count as a cold rebuild.
 		{Time: now.Add(-4 * time.Minute), Session: "s1", Provider: "anthropic-native", InboundShape: "anthropic", Status: 429, InputTokens: 0, CacheWriteTokens: 0, Error: "rate limited"},
+		// Nor does a tiny cold prompt (a probe, or a pre-cache_write record).
+		{Time: now.Add(-3 * time.Minute), Session: "s1", Provider: "anthropic-native", InboundShape: "anthropic", Status: 200, InputTokens: 2},
 	}
 	s := AggregateWith(records, now.Add(-time.Hour), Options{Native: native, Reference: ref})
 
@@ -108,7 +110,7 @@ func TestEfficiencyAggregates(t *testing.T) {
 	}
 
 	s1 := s.BySession["s1"]
-	if s1 == nil || s1.Requests != 5 || s1.OffPlan != 1 || s1.Errors != 1 {
+	if s1 == nil || s1.Requests != 6 || s1.OffPlan != 1 || s1.Errors != 1 {
 		t.Fatalf("s1 = %+v", s1)
 	}
 	if s1.MinColdPrompt != 90002 {

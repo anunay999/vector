@@ -114,6 +114,13 @@ func referenceCost(r telemetry.Record, p config.Price) float64 {
 		float64(r.CacheWriteTokens)*p.CacheWrite/1e6
 }
 
+// minColdPrompt is the smallest cold prompt that counts as a rebuild. A real
+// fixed payload (system prompt + instructions + tools) is thousands of tokens;
+// anything smaller is a probe, a count, or a record written before
+// cache_write_tokens was recorded, whose input_tokens alone (often 2) would
+// otherwise become the session's floor.
+const minColdPrompt = 1000
+
 // isColdRebuild reports whether a successful record rebuilt its prompt from a
 // cold cache. Mirrors the gateway's thrash guard definition.
 func isColdRebuild(r telemetry.Record) (int, bool) {
@@ -121,7 +128,7 @@ func isColdRebuild(r telemetry.Record) (int, bool) {
 		return 0, false
 	}
 	n := r.InputTokens + r.CacheWriteTokens
-	return n, n > 0
+	return n, n >= minColdPrompt
 }
 
 // foldEfficiency folds one record into the snapshot's efficiency and session
