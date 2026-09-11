@@ -31,6 +31,7 @@ type Config struct {
 	Models         []Model            `yaml:"models"`
 	Roles          map[string]Role    `yaml:"roles"`
 	Policies       []Policy           `yaml:"policies"`
+	ModelMap       []ModelRule        `yaml:"model_map"`
 	Complexity     Complexity         `yaml:"complexity"`
 	Budget         Budget             `yaml:"budget"`
 	Fallback       Fallback           `yaml:"fallback"`
@@ -106,6 +107,15 @@ type Role struct {
 type Policy struct {
 	Match Match  `yaml:"match"`
 	Route string `yaml:"route"`
+}
+
+// ModelRule is one entry of the model_map redirect table: a concrete inbound
+// model id is forced to another target (role, registry model, or provider),
+// taking precedence over policies but not over an explicit registry model or a
+// virtual role. From supports a trailing '*' glob.
+type ModelRule struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 // Match selects requests. Empty fields are wildcards. Model supports a trailing

@@ -90,6 +90,18 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	for i, rule := range c.ModelMap {
+		if strings.TrimSpace(rule.From) == "" {
+			return fmt.Errorf("model_map[%d]: from is required", i)
+		}
+		if strings.TrimSpace(rule.To) == "" {
+			return fmt.Errorf("model_map[%d]: to is required", i)
+		}
+		if err := c.validateTarget(rule.To, providers, models); err != nil {
+			return fmt.Errorf("model_map[%d]: %w", i, err)
+		}
+	}
+
 	if c.Complexity.DefaultFloor != "" {
 		if _, ok := c.Roles[c.Complexity.DefaultFloor]; !ok {
 			return fmt.Errorf("complexity.default_floor %q is not a configured role", c.Complexity.DefaultFloor)

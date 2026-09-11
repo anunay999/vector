@@ -103,6 +103,13 @@ func (r *Router) Route(in Input) (Decision, error) {
 		}
 	}
 
+	// 2b. An explicit model redirect (model_map) forces a concrete inbound model
+	// to a target, taking precedence over the broad traffic policy.
+	if d, ok := r.modelMap(in, traffic); ok {
+		r.attachFallbacks(in, &d)
+		return d, nil
+	}
+
 	// 3. Policy default (harness/traffic/model match).
 	if route, ok := r.matchPolicy(in, traffic); ok {
 		d, err := r.routeTarget(in, route, traffic, "policy")
@@ -187,6 +194,20 @@ func (r *Router) headerRole(headers map[string]string) string {
 		}
 	}
 	return ""
+}
+
+// modelMap applies the ordered model_map redirect table. It returns a decision
+// when an inbound model matches a rule's From glob and the target resolves.
+func (r *Router) modelMap(in Input, traffic string) (Decision, bool) {
+	for _, rule := range r.cfg.ModelMap {
+		if !matchGlob(rule.From, in.Model) {
+			continue
+		}
+		if d, err := r.routeTarget(in, rule.To, traffic, "model_map "+rule.From); err == nil {
+			return d, true
+		}
+	}
+	return Decision{}, false
 }
 
 // matchPolicy returns the first matching policy's route.

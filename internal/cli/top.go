@@ -332,9 +332,10 @@ func frame(cfg *config.Config, snap stats.Snapshot, readErr error, width, height
 		if r.Error != "" {
 			status = fmt.Sprintf("%d %s", r.Status, truncate(r.Error, 24))
 		}
-		fmt.Fprintf(&b, "  %s  %-12s %-38s %-12s %6s %9s  %s\n",
-			r.Time.Format("15:04:05"), truncate(r.Role, 12), truncate(model, 38),
-			truncate(r.Provider, 12), fmt.Sprintf("%d/%d", r.InputTokens, r.OutputTokens),
+		fmt.Fprintf(&b, "  %s  %-8s %-12s %-34s %-12s %6s %9s  %s\n",
+			r.Time.Format("15:04:05"), shortSession(r.Session), truncate(r.Role, 12),
+			truncate(model, 34), truncate(r.Provider, 12),
+			fmt.Sprintf("%d/%d", r.InputTokens, r.OutputTokens),
 			money(r.EstCostUSD), status)
 	}
 

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -24,6 +25,8 @@ func newTelemetryCmd() *cobra.Command {
 		limit    int
 		role     string
 		provider string
+		session  string
+		project  string
 		showPath bool
 	)
 	cmd := &cobra.Command{
@@ -58,7 +61,7 @@ func newTelemetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			records = filterRecords(records, role, provider)
+			records = filterRecords(records, role, provider, session, project)
 			sort.Slice(records, func(i, j int) bool { return records[i].Time.After(records[j].Time) })
 			if limit > 0 && len(records) > limit {
 				records = records[:limit]
@@ -79,12 +82,14 @@ func newTelemetryCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "n", 50, "max records to show (0 = all)")
 	cmd.Flags().StringVar(&role, "role", "", "filter by role")
 	cmd.Flags().StringVar(&provider, "provider", "", "filter by provider")
+	cmd.Flags().StringVar(&session, "session", "", "filter by session id (prefix)")
+	cmd.Flags().StringVar(&project, "project", "", "filter by working directory (substring)")
 	cmd.Flags().BoolVar(&showPath, "path", false, "print the telemetry directory")
 	return cmd
 }
 
-func filterRecords(in []telemetry.Record, role, provider string) []telemetry.Record {
-	if role == "" && provider == "" {
+func filterRecords(in []telemetry.Record, role, provider, session, project string) []telemetry.Record {
+	if role == "" && provider == "" && session == "" && project == "" {
 		return in
 	}
 	out := make([]telemetry.Record, 0, len(in))
@@ -93,6 +98,12 @@ func filterRecords(in []telemetry.Record, role, provider string) []telemetry.Rec
 			continue
 		}
 		if provider != "" && r.Provider != provider {
+			continue
+		}
+		if session != "" && !strings.HasPrefix(r.Session, session) {
+			continue
+		}
+		if project != "" && !strings.Contains(r.Project, project) {
 			continue
 		}
 		out = append(out, r)
@@ -106,7 +117,7 @@ func printRecords(records []telemetry.Record, since time.Duration) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tHARNESS\tROLE\tMODEL\tPROVIDER\tTOKENS\tCOST\tMS\tSTATUS")
+	fmt.Fprintln(w, "TIME\tSESSION\tPROJECT\tHARNESS\tROLE\tMODEL\tPROVIDER\tTOKENS\tCOST\tMS\tSTATUS")
 	for _, r := range records {
 		model := r.RoutedModel
 		if r.RequestedModel != "" && r.RequestedModel != r.RoutedModel {
@@ -116,11 +127,35 @@ func printRecords(records []telemetry.Record, since time.Duration) {
 		if r.Error != "" {
 			status = fmt.Sprintf("%d %s", r.Status, truncateStr(r.Error, 40))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d/%d\t$%.4f\t%d\t%s\n",
-			r.Time.Format("15:04:05"), r.Harness, r.Role, model, r.Provider,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d/%d\t$%.4f\t%d\t%s\n",
+			r.Time.Format("15:04:05"), shortSession(r.Session), truncateStr(baseName(r.Project), 20),
+			r.Harness, r.Role, model, r.Provider,
 			r.InputTokens, r.OutputTokens, r.EstCostUSD, r.LatencyMS, status)
 	}
 	w.Flush()
+}
+
+// shortSession renders a session id compactly for tables (first 8 chars).
+func shortSession(s string) string {
+	if s == "" {
+		return "-"
+	}
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
+}
+
+// baseName returns the last path element of a working directory.
+func baseName(p string) string {
+	if p == "" {
+		return "-"
+	}
+	p = strings.TrimRight(p, "/")
+	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+		return p[i+1:]
+	}
+	return p
 }
 
 func truncateStr(s string, n int) string {

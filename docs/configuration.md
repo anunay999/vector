@@ -144,6 +144,31 @@ policies:
   - {match: {model: "vector-*"}, route: worker}
 ```
 
+## Model redirects (`model_map`)
+
+`model_map` forces a concrete inbound model to another target — the "say it like
+a sentence" redirect. It is an ordered table; the first matching `from` wins,
+`from` supports a trailing `*`, and `to` is a role, a registry model, or a
+provider. It takes precedence over policies, but not over an explicit registry
+model or a `vector-*` role.
+
+```yaml
+model_map:
+  - {from: claude-sonnet-5, to: openrouter/z-ai/glm-5.3-flash}
+  - {from: "claude-opus*",  to: openrouter/deepseek/deepseek-v4.1-flash}
+```
+
+```sh
+vector models map claude-sonnet-5 openrouter/z-ai/glm-5.3-flash
+vector models map "claude-opus*"  openrouter/deepseek/deepseek-v4.1-flash
+vector models map                 # list
+vector models map --remove claude-sonnet-5
+```
+
+Note this applies to whatever traffic names that model — including the main
+session if it runs `claude-opus-5`. Use it deliberately: it moves the "trunk",
+not just the leaves.
+
 ## Budget and fallback
 
 ```yaml

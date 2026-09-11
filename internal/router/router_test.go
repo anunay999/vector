@@ -68,6 +68,52 @@ func TestRouteNativePrimaryPassthrough(t *testing.T) {
 	}
 }
 
+func TestModelMapRedirectsNativeModel(t *testing.T) {
+	r := newRouter(t)
+	r.cfg.ModelMap = []config.ModelRule{{From: "claude-opus-5", To: "openrouter/deepseek/deepseek-v4.1-flash"}}
+	d, err := r.Route(Input{Harness: "claude-code", Shape: llm.ShapeAnthropic, Model: "claude-opus-5"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if d.Provider.ID != "openrouter" || d.UpstreamModel != "deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("model_map gave %s/%s, want openrouter/deepseek/deepseek-v4.1-flash", d.Provider.ID, d.UpstreamModel)
+	}
+}
+
+func TestModelMapGlobMatches(t *testing.T) {
+	r := newRouter(t)
+	r.cfg.ModelMap = []config.ModelRule{{From: "claude-opus*", To: "openrouter/moonshotai/kimi-k3"}}
+	d, err := r.Route(Input{Shape: llm.ShapeAnthropic, Model: "claude-opus-9-future"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if d.UpstreamModel != "moonshotai/kimi-k3" {
+		t.Fatalf("upstream = %q, want moonshotai/kimi-k3", d.UpstreamModel)
+	}
+}
+
+// A structurally detected subagent (cc_is_subagent) must route to the cheap
+// worker role even though its requested model is a frontier Claude id.
+func TestSubagentSignalRoutesToWorker(t *testing.T) {
+	r := newRouter(t)
+	d, err := r.Route(Input{
+		Harness: "claude-code", Shape: llm.ShapeAnthropic, Model: "claude-sonnet-5",
+		IsSubagent: true, SubagentSignal: true,
+	})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if d.Role != "worker" {
+		t.Fatalf("role = %q, want worker", d.Role)
+	}
+	if d.Provider.ID != "openrouter" {
+		t.Fatalf("provider = %q, want openrouter (cheap)", d.Provider.ID)
+	}
+	if !d.IsSubagent {
+		t.Fatal("expected subagent decision")
+	}
+}
+
 func TestRouteEscalateKeepsRequestedNativeModel(t *testing.T) {
 	r := newRouter(t)
 	d, err := r.Route(Input{Shape: llm.ShapeAnthropic, Model: "vector-escalate"})

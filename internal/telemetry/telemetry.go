@@ -12,25 +12,31 @@ import (
 
 // Record is a single request observation.
 type Record struct {
-	Time            time.Time `json:"time"`
-	RequestID       string    `json:"request_id"`
-	Harness         string    `json:"harness"`
-	Role            string    `json:"role,omitempty"`
-	RequestedModel  string    `json:"requested_model"`
-	RoutedModel     string    `json:"routed_model"`
-	Provider        string    `json:"provider"`
-	InboundShape    string    `json:"inbound_shape"`
-	UpstreamShape   string    `json:"upstream_shape"`
-	Translated      bool      `json:"translated"`
-	Stream          bool      `json:"stream"`
-	Status          int       `json:"status"`
-	LatencyMS       int64     `json:"latency_ms"`
-	InputTokens     int       `json:"input_tokens,omitempty"`
-	OutputTokens    int       `json:"output_tokens,omitempty"`
-	CacheReadTokens int       `json:"cache_read_tokens,omitempty"`
-	EstCostUSD      float64   `json:"est_cost_usd,omitempty"`
-	Reason          string    `json:"reason,omitempty"`
-	Error           string    `json:"error,omitempty"`
+	Time      time.Time `json:"time"`
+	RequestID string    `json:"request_id"`
+	Harness   string    `json:"harness"`
+	// Session identifies the client session the request came from. Claude Code
+	// sends X-Claude-Code-Session-Id and Codex sends session-id.
+	Session string `json:"session,omitempty"`
+	// Project is the working directory reported in the request's system prompt,
+	// which maps a request to a checkout even when no session id is present.
+	Project         string  `json:"project,omitempty"`
+	Role            string  `json:"role,omitempty"`
+	RequestedModel  string  `json:"requested_model"`
+	RoutedModel     string  `json:"routed_model"`
+	Provider        string  `json:"provider"`
+	InboundShape    string  `json:"inbound_shape"`
+	UpstreamShape   string  `json:"upstream_shape"`
+	Translated      bool    `json:"translated"`
+	Stream          bool    `json:"stream"`
+	Status          int     `json:"status"`
+	LatencyMS       int64   `json:"latency_ms"`
+	InputTokens     int     `json:"input_tokens,omitempty"`
+	OutputTokens    int     `json:"output_tokens,omitempty"`
+	CacheReadTokens int     `json:"cache_read_tokens,omitempty"`
+	EstCostUSD      float64 `json:"est_cost_usd,omitempty"`
+	Reason          string  `json:"reason,omitempty"`
+	Error           string  `json:"error,omitempty"`
 }
 
 // Recorder appends records to daily JSONL files under dir.

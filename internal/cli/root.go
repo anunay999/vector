@@ -52,6 +52,7 @@ func newRootCmd() *cobra.Command {
 		newAgentsCmd(),
 		newSpendCmd(),
 		newTelemetryCmd(),
+		newSessionsCmd(),
 		newLogsCmd(),
 		newTopCmd(),
 		newUpgradeCmd(),

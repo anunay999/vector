@@ -4,6 +4,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -226,11 +227,21 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	}
 	env.PromptChars = len(body)
 
+	session := sessionID(r)
+	project := workingDir(body)
+	subagent := isSubagentRequest(r, body)
+
 	input := router.Input{
-		Harness: harness,
-		Shape:   shape,
-		Model:   env.Model,
-		Headers: flattenHeaders(r.Header),
+		Harness:        harness,
+		Shape:          shape,
+		Model:          env.Model,
+		IsSubagent:     subagent,
+		SubagentSignal: subagent,
+		Headers:        flattenHeaders(r.Header),
+	}
+	base := telemetry.Record{
+		Time: start, RequestID: requestID, Harness: harness, Session: session, Project: project,
+		RequestedModel: env.Model, InboundShape: string(shape), Stream: env.Stream,
 	}
 
 	var primary router.Decision
@@ -241,10 +252,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	}
 	if err != nil {
 		s.log.Warn("routing failed", "err", err, "model", env.Model)
-		s.finish(w, shape, telemetry.Record{
-			Time: start, RequestID: requestID, Harness: harness,
-			RequestedModel: env.Model, InboundShape: string(shape), Stream: env.Stream,
-		}, http.StatusBadGateway, err.Error())
+		s.finish(rt.rec, w, shape, base, http.StatusBadGateway, err.Error())
 		return
 	}
 
@@ -255,21 +263,17 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		est := estimateCost(primary, env)
 		switch bd := s.gov.Check(primary.Provider.ID, est); {
 		case bd.Exceeded:
-			s.finish(w, shape, telemetry.Record{
-				Time: start, RequestID: requestID, Harness: harness, Role: primary.Role,
-				RequestedModel: env.Model, RoutedModel: primary.UpstreamModel,
-				Provider: primary.Provider.ID, InboundShape: string(shape), Stream: env.Stream,
-				Reason: primary.Reason,
-			}, http.StatusTooManyRequests, "vector: budget ceiling reached")
+			rec := base
+			rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
+			rec.Reason = primary.Reason
+			s.finish(rt.rec, w, shape, rec, http.StatusTooManyRequests, "vector: budget ceiling reached")
 			return
 		case bd.Queue:
 			w.Header().Set("Retry-After", "5")
-			s.finish(w, shape, telemetry.Record{
-				Time: start, RequestID: requestID, Harness: harness, Role: primary.Role,
-				RequestedModel: env.Model, RoutedModel: primary.UpstreamModel,
-				Provider: primary.Provider.ID, InboundShape: string(shape), Stream: env.Stream,
-				Reason: primary.Reason,
-			}, http.StatusTooManyRequests, "vector: budget queue full")
+			rec := base
+			rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
+			rec.Reason = primary.Reason
+			s.finish(rt.rec, w, shape, rec, http.StatusTooManyRequests, "vector: budget queue full")
 			return
 		case bd.Downgrade:
 			// Try alternate candidates before the frontier choice.
@@ -284,12 +288,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 		release, aerr := s.gov.Acquire(harness)
 		if aerr != nil {
 			w.Header().Set("Retry-After", "2")
-			s.finish(w, shape, telemetry.Record{
-				Time: start, RequestID: requestID, Harness: harness, Role: primary.Role,
-				RequestedModel: env.Model, RoutedModel: primary.UpstreamModel,
-				Provider: primary.Provider.ID, InboundShape: string(shape), Stream: env.Stream,
-				Reason: primary.Reason,
-			}, http.StatusTooManyRequests, aerr.Error())
+			rec := base
+			rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
+			rec.Reason = primary.Reason
+			s.finish(rt.rec, w, shape, rec, http.StatusTooManyRequests, aerr.Error())
 			return
 		}
 		defer release()
@@ -306,12 +308,11 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 				shape, dec.UpstreamShape, dec.Provider.ID)
 			continue
 		}
-		rec := telemetry.Record{
-			Time: start, RequestID: requestID, Harness: harness, Role: dec.Role,
-			RequestedModel: env.Model, RoutedModel: dec.UpstreamModel, Provider: dec.Provider.ID,
-			InboundShape: string(shape), UpstreamShape: string(dec.UpstreamShape),
-			Translated: dec.Translate, Stream: env.Stream, Reason: dec.Reason,
-		}
+		rec := base
+		rec.Role, rec.RoutedModel, rec.Provider = dec.Role, dec.UpstreamModel, dec.Provider.ID
+		rec.UpstreamShape = string(dec.UpstreamShape)
+		rec.Translated = dec.Translate
+		rec.Reason = dec.Reason
 		if i > 0 {
 			rec.Reason = fmt.Sprintf("%s (fallback #%d)", rec.Reason, i)
 		}
@@ -399,22 +400,23 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, shape llm.Shape, 
 	if lastErr != nil {
 		msg = lastErr.Error()
 	}
-	s.finish(w, shape, telemetry.Record{
-		Time: start, RequestID: requestID, Harness: harness, Role: primary.Role,
-		RequestedModel: env.Model, RoutedModel: primary.UpstreamModel, Provider: primary.Provider.ID,
-		InboundShape: string(shape), Stream: env.Stream, Reason: primary.Reason,
-	}, http.StatusBadGateway, msg)
+	rec := base
+	rec.Role, rec.RoutedModel, rec.Provider = primary.Role, primary.UpstreamModel, primary.Provider.ID
+	rec.Reason = primary.Reason
+	s.finish(rt.rec, w, shape, rec, http.StatusBadGateway, msg)
 }
 
-// finish writes an error response and records it.
-func (s *Server) finish(w http.ResponseWriter, shape llm.Shape, rec telemetry.Record, status int, msg string) {
+// finish writes an error response and records it through the request's own
+// recorder, so a mid-flight config reload cannot split one request's records
+// across two recorders.
+func (s *Server) finish(recorder *telemetry.Recorder, w http.ResponseWriter, shape llm.Shape, rec telemetry.Record, status int, msg string) {
 	s.writeError(w, shape, status, msg)
 	rec.Status = status
 	rec.Error = msg
 	if rec.LatencyMS == 0 {
 		rec.LatencyMS = time.Since(rec.Time).Milliseconds()
 	}
-	_ = s.rt.Load().rec.Record(rec)
+	_ = recorder.Record(rec)
 }
 
 // creditMarkers indicate an upstream plan is out of credits or quota, which
@@ -588,4 +590,52 @@ func detectHarness(r *http.Request) string {
 		return "claude-code"
 	}
 	return "unknown"
+}
+
+// sessionID identifies the originating client session from headers. Claude Code
+// sends X-Claude-Code-Session-Id and Codex sends session-id.
+func sessionID(r *http.Request) string {
+	for _, h := range []string{"X-Claude-Code-Session-Id", "Session-Id"} {
+		if v := strings.TrimSpace(r.Header.Get(h)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// workingDir extracts "Working directory: <path>" from the request body's system
+// prompt, which Claude Code and Codex both include.
+func workingDir(body []byte) string {
+	const marker = "Working directory: "
+	i := bytes.Index(body, []byte(marker))
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(marker):]
+	if end := bytes.IndexAny(rest, "\n\r\\\""); end >= 0 {
+		rest = rest[:end]
+	}
+	if len(rest) > 300 {
+		rest = rest[:300]
+	}
+	return strings.TrimSpace(string(rest))
+}
+
+// isSubagentRequest reports whether a request was spawned by a harness subagent
+// (the Task/Agent tool) rather than the main thread. Claude Code tags these with
+// X-Claude-Code-Agent-Id and cc_is_subagent=true in its billing system block;
+// Codex names the agent in x-codex-turn-metadata. Detecting subagents
+// structurally means we do not depend on the requested model being a vector
+// role.
+func isSubagentRequest(r *http.Request, body []byte) bool {
+	if strings.TrimSpace(r.Header.Get("X-Claude-Code-Agent-Id")) != "" {
+		return true
+	}
+	if bytes.Contains(body, []byte("cc_is_subagent=true")) {
+		return true
+	}
+	if v := r.Header.Get("X-Codex-Turn-Metadata"); v != "" && strings.Contains(v, `"agent_name"`) {
+		return !strings.Contains(v, `"agent_name":"/root"`)
+	}
+	return false
 }

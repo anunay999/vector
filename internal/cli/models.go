@@ -48,7 +48,99 @@ func newModelsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON")
-	cmd.AddCommand(newModelsSetCmd(), newModelsRemoveCmd(), newModelsUseCmd())
+	cmd.AddCommand(newModelsSetCmd(), newModelsRemoveCmd(), newModelsUseCmd(), newModelsMapCmd())
+	return cmd
+}
+
+// newModelsMapCmd manages the model_map redirect table: a concrete inbound
+// model id (e.g. claude-opus-5) forced to another target.
+func newModelsMapCmd() *cobra.Command {
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "map [<from> <to>] [--remove <from>]",
+		Short: "Show, add, or remove inbound model redirects",
+		Long: "Model redirects force a concrete inbound model to a target (a role,\n" +
+			"registry model, or provider), taking precedence over policies.\n" +
+			"Examples:\n" +
+			"  vector models map claude-opus-5 openrouter/deepseek/deepseek-v4.1-flash\n" +
+			"  vector models map 'claude-opus*' openrouter/moonshotai/kimi-k3\n" +
+			"  vector models map --remove claude-opus-5",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := configPath()
+			m, err := loadRawConfigMap(path)
+			if err != nil {
+				return err
+			}
+			rules := anyList(m, "model_map")
+
+			if remove {
+				if len(args) != 1 {
+					return fmt.Errorf("--remove takes exactly one <from>")
+				}
+				kept := rules[:0]
+				found := false
+				for _, item := range rules {
+					if e, ok := item.(map[string]any); ok {
+						if s, _ := e["from"].(string); s == args[0] {
+							found = true
+							continue
+						}
+					}
+					kept = append(kept, item)
+				}
+				if !found {
+					return fmt.Errorf("no model_map rule for %q", args[0])
+				}
+				m["model_map"] = kept
+				if err := writeRawConfigMap(path, m); err != nil {
+					return err
+				}
+				fmt.Printf("removed model_map %s\n", args[0])
+				reloadGateway()
+				return nil
+			}
+
+			if len(args) == 0 {
+				if len(rules) == 0 {
+					fmt.Println("no model_map rules")
+					return nil
+				}
+				w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+				fmt.Fprintln(w, "FROM\tTO")
+				for _, item := range rules {
+					if e, ok := item.(map[string]any); ok {
+						fmt.Fprintf(w, "%v\t%v\n", e["from"], e["to"])
+					}
+				}
+				w.Flush()
+				return nil
+			}
+			if len(args) != 2 {
+				return fmt.Errorf("usage: vector models map <from> <to>  (or --remove <from>)")
+			}
+			from, to := args[0], args[1]
+			replaced := false
+			for _, item := range rules {
+				if e, ok := item.(map[string]any); ok {
+					if s, _ := e["from"].(string); s == from {
+						e["to"] = to
+						replaced = true
+					}
+				}
+			}
+			if !replaced {
+				rules = append(rules, map[string]any{"from": from, "to": to})
+			}
+			m["model_map"] = rules
+			if err := writeRawConfigMap(path, m); err != nil {
+				return err
+			}
+			fmt.Printf("model_map %s -> %s\n", from, to)
+			reloadGateway()
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove the rule for <from>")
 	return cmd
 }
 
