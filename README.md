@@ -17,10 +17,63 @@ quota goes to the work that needs it.
 
 Vector supports macOS and Linux on Apple Silicon, Intel, and ARM.
 
+## Install
+
+One-line installer — downloads the release, verifies its checksum, installs to
+`~/.local/bin`, and adds that directory to your shell's `PATH` if needed:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
+```
+
+With a Go toolchain:
+
+```sh
+go install github.com/anunay999/vector/cmd/vector@latest
+```
+
+From source:
+
+```sh
+git clone https://github.com/anunay999/vector && cd vector
+make build          # produces ./bin/vector
+```
+
+Confirm the install and see the full guide at any time:
+
+```sh
+vector --version
+vector guide        # setup guide + current machine state
+```
+
+## Quick start
+
+```sh
+vector init                         # config, API key, optional harness wiring
+vector up                           # start the local gateway
+vector doctor                       # verify config, keys, gateway, and wiring
+```
+
+`init` writes `~/.config/vector/config.yaml`, stores your OpenRouter key in the
+private env file, and can wire your harnesses. It never overwrites an existing
+configuration. `up` starts the gateway in the background; run `vector service
+install` to start it at login. `doctor` inspects the full path and reports the
+first problem with a concrete fix. Watch it live with `vector top`.
+
+For automation, the same setup runs non-interactively:
+
+```sh
+vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
+```
+
 ## What you can do
 
 Vector is a pass-through — you keep using Claude Code or Codex exactly as you do
 today. Only the model behind a request changes.
+
+<p align="center">
+  <img src="assets/vector-top.png" alt="vector top — live model routing dashboard" width="880">
+</p>
 
 **Keep the plan on your subscription; send the busywork to a cheap model.** Wire
 the harness once, then use it normally.
@@ -65,35 +118,6 @@ Listing a native provider keeps that role on your subscription — that's why
 Your prompts, tools, and MCP servers (Trove, Linear, and the rest) keep running
 natively — vector only chooses which model answers.
 
-## Install
-
-One-line installer — downloads the release, verifies its checksum, installs to
-`~/.local/bin`, and adds that directory to your shell's `PATH` if needed:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/anunay999/vector/main/install.sh | sh
-```
-
-With a Go toolchain:
-
-```sh
-go install github.com/anunay999/vector/cmd/vector@latest
-```
-
-From source:
-
-```sh
-git clone https://github.com/anunay999/vector && cd vector
-make build          # produces ./bin/vector
-```
-
-Confirm the install and see the full guide at any time:
-
-```sh
-vector --version
-vector guide        # setup guide + current machine state
-```
-
 ## Setup with your agent
 
 Paste this into Claude Code, Codex, OpenCode, or any coding agent. It installs
@@ -131,26 +155,6 @@ route them, e.g. `vector claude route scout`.
 ```
 
 Or run the whole thing yourself in one command:
-
-```sh
-vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
-```
-
-## Quick start
-
-```sh
-vector init                         # config, API key, optional harness wiring
-vector up                           # start the local gateway
-vector doctor                       # verify config, keys, gateway, and wiring
-```
-
-`init` writes `~/.config/vector/config.yaml`, stores your OpenRouter key in the
-private env file, and can wire your harnesses. It never overwrites an existing
-configuration. `up` starts the gateway in the background; run `vector service
-install` to start it at login. `doctor` inspects the full path and reports the
-first problem with a concrete fix. Watch it live with `vector top`.
-
-For automation, the same setup runs non-interactively:
 
 ```sh
 vector setup --key "$OPENROUTER_API_KEY" --wire claude,codex --start --json
