@@ -132,6 +132,23 @@ A `prefer` entry can be another role (chained), a registered model, or a
 provider id. Native provider entries use `default_model` when the incoming model
 is virtual.
 
+A role can pin the harness subagent's tool allowlist:
+
+```yaml
+roles:
+  worker:
+    tier: cheap
+    prefer: [openrouter/deepseek/deepseek-v4.1-flash]
+    tools: [Read, Grep, Glob, Edit, Write, Bash]   # omit to use the default
+```
+
+`tools` is written into the Claude Code subagent definition
+(`~/.claude/agents/vector-<role>.md`). When unset, vector writes a per-role
+default that excludes MCP tools: a subagent otherwise inherits every connected
+server's schemas, and a background subagent always keeps MCP tools, so that
+payload is re-sent on every subagent request. Add an `mcp__<server>` entry to
+grant one.
+
 Roles are exposed to harnesses as virtual models: role `worker` → `vector-worker`
 (alias `vector/worker`).
 

@@ -269,3 +269,41 @@ func TestClaudeEnableSetsToolSearchButRespectsUserValue(t *testing.T) {
 		t.Fatalf("disable removed the user's value: %q", got)
 	}
 }
+
+func TestClaudeAgentToolAllowlist(t *testing.T) {
+	doc := claudeAgentDoc("vector-worker", "Scoped edits", "vector-worker", defaultAgentTools("worker"))
+	if !strings.Contains(doc, "tools: Read, Grep, Glob, Edit, Write, Bash") {
+		t.Fatalf("worker doc missing tool allowlist:\n%s", doc)
+	}
+	if strings.Contains(doc, "mcp__") {
+		t.Fatalf("worker doc should not grant MCP tools:\n%s", doc)
+	}
+	// A role with no allowlist still denies MCP rather than inheriting it all.
+	doc = claudeAgentDoc("vector-custom", "", "vector-custom", nil)
+	if !strings.Contains(doc, "disallowedTools: mcp__*") {
+		t.Fatalf("unrestricted doc should deny MCP:\n%s", doc)
+	}
+}
+
+func TestUnrestrictedAgentsCountsLegacyDocs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, ".claude"))
+	t.Setenv("VECTOR_CONFIG_DIR", filepath.Join(dir, "vectorcfg"))
+	agents := filepath.Join(dir, ".claude", "agents")
+	if err := os.MkdirAll(agents, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "---\nname: vector-old\ndescription: x\nmodel: vector-old\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(agents, "vector-old.md"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restricted := claudeAgentDoc("vector-worker", "w", "vector-worker", defaultAgentTools("worker"))
+	if err := os.WriteFile(filepath.Join(agents, "vector-worker.md"), []byte(restricted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := NewClaude(testCfg(t))
+	if got := a.unrestrictedAgents(); got != 1 {
+		t.Fatalf("unrestrictedAgents = %d, want 1", got)
+	}
+}

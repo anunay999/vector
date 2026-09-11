@@ -194,6 +194,7 @@ func (c *Claude) Status() (Status, error) {
 		"tool_search":         env[toolSearchKey],
 		"model":               stringValue(settings["model"]),
 		"auto_compact_window": env[autoCompactWindowKey],
+		"agents_unrestricted": fmt.Sprintf("%d", c.unrestrictedAgents()),
 	}
 	return Status{
 		Harness: c.Name(),
@@ -214,7 +215,11 @@ func (c *Claude) writeAgents() ([]string, error) {
 	for _, role := range c.cfg.RoleNames() {
 		def := c.cfg.Roles[role]
 		name := "vector-" + role
-		body := claudeAgentDoc(name, def.Description, name)
+		tools := def.Tools
+		if len(tools) == 0 {
+			tools = defaultAgentTools(role)
+		}
+		body := claudeAgentDoc(name, def.Description, name, tools)
 		path := filepath.Join(c.agentsDir(), name+".md")
 		if err := writeFileAtomic(path, []byte(body), 0o600); err != nil {
 			return written, err
@@ -231,21 +236,79 @@ func stringValue(v any) string {
 	return s
 }
 
-func claudeAgentDoc(name, description, model string) string {
+func claudeAgentDoc(name, description, model string, tools []string) string {
 	if description == "" {
 		description = "Vector subagent " + name
 	}
 	description = strings.TrimSpace(description)
-	prompt := fmt.Sprintf("You are a vector subagent working on a narrowly scoped task. " +
+	const prompt = "You are a vector subagent working on a narrowly scoped task. " +
 		"Follow the brief you are given, keep changes minimal, and state clearly when a task " +
-		"is underspecified or needs escalation rather than guessing.")
+		"is underspecified or needs escalation rather than guessing."
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "name: %s\n", name)
 	fmt.Fprintf(&b, "description: %s\n", description)
 	fmt.Fprintf(&b, "model: %s\n", model)
+	if len(tools) > 0 {
+		// An allowlist keeps every MCP server's schemas out of the subagent's
+		// prompt — the bulk of a subagent request behind a gateway.
+		fmt.Fprintf(&b, "tools: %s\n", strings.Join(tools, ", "))
+	} else {
+		// No allowlist configured: still deny MCP so the subagent does not
+		// inherit every connected server's tool schemas.
+		b.WriteString("disallowedTools: mcp__*\n")
+	}
 	b.WriteString("---\n\n")
 	b.WriteString(prompt)
 	b.WriteString("\n")
 	return b.String()
+}
+
+// defaultAgentTools is the tool allowlist written for a role that does not set
+// one. MCP tools are absent on purpose: a subagent otherwise inherits every
+// connected server's schemas, and a background subagent always keeps MCP tools,
+// so that payload is what bloats subagent requests and re-bills on every cache
+// miss. Override per role with roles.<name>.tools.
+func defaultAgentTools(role string) []string {
+	switch role {
+	case "scout":
+		return []string{"Read", "Grep", "Glob"}
+	case "worker":
+		return []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash"}
+	case "reviewer":
+		return []string{"Read", "Grep", "Glob", "Bash"}
+	case "researcher":
+		return []string{"Read", "Grep", "Glob", "WebFetch", "WebSearch"}
+	case "lead":
+		return []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash", "Agent"}
+	case "architect":
+		return []string{"Read", "Grep", "Glob", "Bash", "Agent"}
+	case "escalate":
+		return []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash", "Agent"}
+	}
+	return nil
+}
+
+// unrestrictedAgents counts installed vector-* agent definitions that would
+// inherit every MCP server's tool schemas (no tools allowlist and no MCP deny).
+func (c *Claude) unrestrictedAgents() int {
+	paths, err := filepath.Glob(filepath.Join(c.agentsDir(), "vector-*.md"))
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		head := string(data)
+		if i := strings.Index(head, "\n---"); i >= 0 {
+			head = head[:i]
+		}
+		if !strings.Contains(head, "tools:") && !strings.Contains(head, "disallowedTools:") {
+			n++
+		}
+	}
+	return n
 }

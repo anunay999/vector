@@ -200,6 +200,13 @@
           },
           "description": {
             "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tool allowlist written into ~/.claude/agents/vector-<role>.md. Empty uses a per-role default that excludes MCP tools; add mcp__<server> to grant one."
           }
         }
       }

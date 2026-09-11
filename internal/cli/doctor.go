@@ -143,6 +143,13 @@ func claudeContextChecks(info map[string]string) []check {
 		out = append(out, check{Name: "claude/1m-context", Status: "warn",
 			Detail: fmt.Sprintf("model %q: Claude Code only treats api.anthropic.com as 1M-entitled; behind a gateway the session can drop to a 200k auto-compact window, which loops when tool schemas exceed ~150k tokens. Pin it with CLAUDE_CODE_AUTO_COMPACT_WINDOW or keep the tool inventory small", m)})
 	}
+	switch v := info["agents_unrestricted"]; {
+	case v != "" && v != "0":
+		out = append(out, check{Name: "claude/subagent-tools", Status: "warn",
+			Detail: v + " vector-* agent(s) inherit every MCP tool schema and re-send it on every subagent request; run 'vector claude on' to write per-role tool allowlists"})
+	case v == "0":
+		out = append(out, check{Name: "claude/subagent-tools", Status: "ok", Detail: "subagents limited to their role's tools"})
+	}
 	return out
 }
 

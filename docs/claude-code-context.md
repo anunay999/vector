@@ -64,6 +64,10 @@ turn costs.
   naming the tool, drops `server_tool_use` / `tool_search_tool_result` history
   blocks, and filters the tool-search betas out of `anthropic-beta`. Untouched
   fields are forwarded unchanged.
+- **Subagent definitions carry a tool allowlist.** `vector claude on` writes
+  `tools:` into each `~/.claude/agents/vector-<role>.md` (for example
+  `vector-scout` → `Read, Grep, Glob`), so a subagent stops inheriting every MCP
+  server's schemas. Override per role with `roles.<name>.tools`.
 - **`/v1/models` lists the native providers' default models** (for example
   `claude-opus-5` owned by `anthropic-native`), so a harness that discovers
   models through the gateway sees its frontier model rather than a gateway that
