@@ -17,6 +17,10 @@ const (
 	// CLI disables on its own when the base URL is not api.anthropic.com.
 	toolSearchKey   = "ENABLE_TOOL_SEARCH"
 	toolSearchValue = "auto"
+	// autoCompactWindowKey pins the auto-compact window for a session whose
+	// model is 1M-entitled but sits behind a gateway URL (doctor reads it to
+	// know the [1m] caveat is already handled).
+	autoCompactWindowKey = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 )
 
 // Claude wires Claude Code by editing its settings.json env block and installing
@@ -185,10 +189,11 @@ func (c *Claude) Status() (Status, error) {
 	base := env["ANTHROPIC_BASE_URL"]
 	want := "http://" + c.cfg.Listen.Anthropic
 	info := map[string]string{
-		"settings":    c.settingsPath(),
-		"base_url":    base,
-		"tool_search": env[toolSearchKey],
-		"model":       stringValue(settings["model"]),
+		"settings":            c.settingsPath(),
+		"base_url":            base,
+		"tool_search":         env[toolSearchKey],
+		"model":               stringValue(settings["model"]),
+		"auto_compact_window": env[autoCompactWindowKey],
 	}
 	return Status{
 		Harness: c.Name(),
