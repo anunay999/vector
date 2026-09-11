@@ -129,6 +129,10 @@ type Role struct {
 	Primary     bool     `yaml:"primary" json:"primary"`
 	Prefer      []string `yaml:"prefer" json:"prefer"`
 	Description string   `yaml:"description" json:"description"`
+	// Tools optionally overrides the tool allowlist written into the harness
+	// subagent definition. Empty uses a per-role default that excludes MCP tools,
+	// so a subagent does not inherit every server's schemas.
+	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
 }
 
 // ModelRule is one entry of the model_map redirect table: a concrete inbound
