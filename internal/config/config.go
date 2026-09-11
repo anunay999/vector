@@ -25,19 +25,24 @@ const (
 
 // Config is the root configuration document.
 type Config struct {
-	Version        int                `yaml:"version"`
-	RoutingEnabled bool               `yaml:"routing_enabled"`
-	Listen         Listen             `yaml:"listen"`
-	Providers      []Provider         `yaml:"providers"`
-	Models         []Model            `yaml:"models"`
-	Roles          map[string]Role    `yaml:"roles"`
-	ModelMap       []ModelRule        `yaml:"model_map"`
-	Subagents      Subagents          `yaml:"subagents"`
-	Budget         Budget             `yaml:"budget"`
-	Guard          Guard              `yaml:"guard"`
-	Fallback       Fallback           `yaml:"fallback"`
-	Harnesses      map[string]Harness `yaml:"harnesses"`
-	Telemetry      Telemetry          `yaml:"telemetry"`
+	Version        int             `yaml:"version"`
+	RoutingEnabled bool            `yaml:"routing_enabled"`
+	Listen         Listen          `yaml:"listen"`
+	Providers      []Provider      `yaml:"providers"`
+	Models         []Model         `yaml:"models"`
+	Roles          map[string]Role `yaml:"roles"`
+	ModelMap       []ModelRule     `yaml:"model_map"`
+	Subagents      Subagents       `yaml:"subagents"`
+	Budget         Budget          `yaml:"budget"`
+	Guard          Guard           `yaml:"guard"`
+	// ReferencePrices overrides or extends the built-in API list-price table
+	// (see reference.go) used only to estimate savings. Keys are model ids in
+	// any of the forms a harness sends ("claude-opus-5", "gpt-5.4",
+	// "claude-sonnet-4-6[1m]").
+	ReferencePrices map[string]Price   `yaml:"reference_prices,omitempty"`
+	Fallback        Fallback           `yaml:"fallback"`
+	Harnesses       map[string]Harness `yaml:"harnesses"`
+	Telemetry       Telemetry          `yaml:"telemetry"`
 
 	// path is the file this config was loaded from, if any.
 	path string `yaml:"-"`
@@ -79,11 +84,10 @@ type Provider struct {
 	// Native marks a provider that must be called with the inbound Authorization
 	// header rather than a configured key.
 	Native bool `yaml:"native"`
-	// ReferencePrice is the API list price of the model this native provider
-	// would have served (its default_model). It is never used for billing: it
-	// only prices the tokens that routing sent elsewhere, so `vector top` and
-	// `vector spend` can report an estimated saving. Unset means "unknown", and
-	// the saving is reported as unavailable rather than guessed.
+	// ReferencePrice pins the API list price this native provider's traffic is
+	// measured against when a request names no priceable model (a virtual role
+	// such as vector-worker). Unset means "use the built-in list price of
+	// default_model". Never used for billing.
 	ReferencePrice *Price `yaml:"reference_price,omitempty"`
 }
 

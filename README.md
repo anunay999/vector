@@ -198,7 +198,9 @@ off-plan gauge, per-role latency percentiles and average output tok/s, and the
 most recent requests.
 
 An **efficiency line** answers "what did routing buy me": estimated saving
-against the native provider's `reference_price` (or `n/a` until you set one),
+against the API list price of the model each request asked for (a built-in
+table covers current Claude and Codex models; `vector models reference` shows
+it, `reference_prices` in config overrides it),
 tokens kept off the subscription, prompt-cache hit ratio, share of requests
 using Claude Code's deferred tool loading, and any circuit-breaker events. A
 **sessions table** ranks client sessions by cost with their off-plan share,

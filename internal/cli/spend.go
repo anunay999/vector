@@ -53,7 +53,7 @@ func newSpendCmd() *cobra.Command {
 				case snap.SavingsPriced > 0:
 					fmt.Printf("Estimated saving vs reference price: ≥ $%.4f (%d off-plan requests unpriced)\n", snap.SavingsUSD, snap.SavingsUnpriced)
 				case snap.OffPlan > 0:
-					fmt.Println("Estimated saving: n/a — set reference_price on the native provider (see docs/configuration.md#providers)")
+					fmt.Println("Estimated saving: n/a — no list price known for the requested models; add reference_prices (see vector models reference)")
 				}
 				for _, k := range sortedKeys(snap.GuardEvents) {
 					fmt.Printf("Guard events: %s ×%d\n", k, snap.GuardEvents[k])

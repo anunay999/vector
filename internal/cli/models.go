@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/anunay999/vector/internal/config"
 	"github.com/anunay999/vector/internal/registry"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -48,12 +49,61 @@ func newModelsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON")
-	cmd.AddCommand(newModelsSetCmd(), newModelsRemoveCmd(), newModelsUseCmd(), newModelsMapCmd())
+	cmd.AddCommand(newModelsSetCmd(), newModelsRemoveCmd(), newModelsUseCmd(), newModelsMapCmd(), newModelsReferenceCmd())
 	return cmd
 }
 
 // newModelsMapCmd manages the model_map redirect table: a concrete inbound
 // model id (e.g. claude-opus-5) forced to another target.
+// newModelsReferenceCmd prints the list prices savings are measured against.
+func newModelsReferenceCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "reference [<model>]",
+		Short: "Show the API list prices used to estimate savings",
+		Long: "Prints the effective reference table: built-in API list prices for the models\n" +
+			"Claude Code and Codex ask for (captured " + config.BuiltinReferenceAsOf + "), with any\n" +
+			"reference_prices overrides applied. These prices are never billed; they price the\n" +
+			"tokens routing kept off the subscription so `vector top` and `vector spend` can\n" +
+			"report an estimated saving. With a model argument, resolves that one id.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				p, ok := cfg.ReferencePriceFor(args[0])
+				if asJSON {
+					return json.NewEncoder(os.Stdout).Encode(map[string]any{"model": args[0], "canonical": config.CanonicalModel(args[0]), "known": ok, "price": p})
+				}
+				if !ok {
+					fmt.Printf("%s (%s): no list price known; add it under reference_prices\n", args[0], config.CanonicalModel(args[0]))
+					return nil
+				}
+				fmt.Printf("%s (%s): in $%.4g  out $%.4g  cache_read $%.4g  cache_write $%.4g  per 1M tokens\n",
+					args[0], config.CanonicalModel(args[0]), p.In, p.Out, p.CacheRead, p.CacheWrite)
+				return nil
+			}
+			rows := cfg.ReferenceTable()
+			if asJSON {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(map[string]any{"as_of": config.BuiltinReferenceAsOf, "models": rows})
+			}
+			fmt.Printf("Reference list prices (USD per 1M tokens; built-in table as of %s):\n", config.BuiltinReferenceAsOf)
+			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(w, "  MODEL\tIN\tOUT\tCACHE_READ\tCACHE_WRITE\tSOURCE")
+			for _, r := range rows {
+				fmt.Fprintf(w, "  %s\t%.4g\t%.4g\t%.4g\t%.4g\t%s\n", r.Model, r.Price.In, r.Price.Out, r.Price.CacheRead, r.Price.CacheWrite, r.Source)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON")
+	return cmd
+}
+
 func newModelsMapCmd() *cobra.Command {
 	var remove bool
 	cmd := &cobra.Command{

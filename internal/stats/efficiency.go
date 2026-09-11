@@ -16,21 +16,40 @@ type Options struct {
 	// Recent caps the recent-requests feed (0 = unlimited).
 	Recent int
 	// Reference prices off-plan traffic at what its native provider would have
-	// charged, keyed by inbound shape ("anthropic", "openai_chat",
-	// "openai_responses"). Shapes without a reference are counted as unpriced.
+	// charged when the requested model itself is not priceable, keyed by
+	// inbound shape ("anthropic", "openai_chat", "openai_responses").
 	Reference map[string]config.Price
+	// ModelPrice resolves the list price of the model a request asked for. It
+	// takes precedence over Reference: a Codex session that asked for gpt-5.4
+	// is measured against gpt-5.4 even though the native provider defaults to
+	// gpt-6-astra. nil means "requested models are never priced directly".
+	ModelPrice func(model string) (config.Price, bool)
 }
 
-// ReferenceFrom builds the Options.Reference map from the native providers that
-// declare a reference_price.
+// ReferenceFrom builds the per-shape fallback map from the native providers:
+// an explicit reference_price, else the built-in list price of default_model.
 func ReferenceFrom(cfg *config.Config) map[string]config.Price {
 	out := map[string]config.Price{}
 	for _, p := range cfg.Providers {
-		if p.Native && p.ReferencePrice != nil {
-			out[p.InboundShape()] = *p.ReferencePrice
+		if !p.Native {
+			continue
+		}
+		if price, ok := cfg.ProviderReferencePrice(p); ok {
+			out[p.InboundShape()] = price
 		}
 	}
 	return out
+}
+
+// referenceFor picks the price an off-plan record is measured against.
+func (o Options) referenceFor(r telemetry.Record) (config.Price, bool) {
+	if o.ModelPrice != nil {
+		if p, ok := o.ModelPrice(r.RequestedModel); ok {
+			return p, true
+		}
+	}
+	p, ok := o.Reference[r.InboundShape]
+	return p, ok
 }
 
 // Session is the per-client-session view: where the money went, how well the
@@ -149,7 +168,7 @@ func (s *Snapshot) foldEfficiency(r telemetry.Record, opts Options) {
 	if offPlan && r.Status >= 200 && r.Status < 300 {
 		s.OffPlanInputTokens += r.InputTokens + r.CacheReadTokens + r.CacheWriteTokens
 		s.OffPlanOutputTokens += r.OutputTokens
-		if p, ok := opts.Reference[r.InboundShape]; ok {
+		if p, ok := opts.referenceFor(r); ok {
 			s.SavingsUSD += referenceCost(r, p) - r.EstCostUSD
 			s.SavingsPriced++
 		} else {

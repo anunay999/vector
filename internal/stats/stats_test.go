@@ -131,12 +131,37 @@ func TestEfficiencyAggregates(t *testing.T) {
 
 func TestReferenceFrom(t *testing.T) {
 	cfg := config.Default()
-	if got := ReferenceFrom(cfg); len(got) != 0 {
-		t.Fatalf("default config has no reference prices, got %v", got)
+	got := ReferenceFrom(cfg)
+	// Native providers fall back to the built-in list price of default_model.
+	if p, ok := got["anthropic"]; !ok || p.In != 5 {
+		t.Fatalf("anthropic shape should default to claude-opus-5's price, got %v", got)
+	}
+	if p, ok := got["openai_responses"]; !ok || p.In != 10 {
+		t.Fatalf("openai_responses shape should default to gpt-6-astra's price, got %v", got)
 	}
 	cfg.Providers[1].ReferencePrice = &config.Price{In: 15, Out: 75}
-	got := ReferenceFrom(cfg)
-	if p, ok := got["anthropic"]; !ok || p.In != 15 {
-		t.Fatalf("reference = %v", got)
+	if p := ReferenceFrom(cfg)["anthropic"]; p.In != 15 {
+		t.Fatalf("explicit reference_price must win: %v", p)
+	}
+}
+
+func TestSavingsPriceRequestedModelFirst(t *testing.T) {
+	cfg := config.Default()
+	now := time.Now()
+	opts := Options{Native: map[string]bool{"anthropic-native": true, "openai-native": true},
+		Reference: ReferenceFrom(cfg), ModelPrice: cfg.ReferencePriceFor}
+	records := []telemetry.Record{
+		// Codex asked for gpt-5.4 ($2.5/M in): priced by the requested model,
+		// not by openai-native's default gpt-6-astra ($10/M).
+		{Time: now, Provider: "openrouter", InboundShape: "openai_responses", RequestedModel: "gpt-5.4", Status: 200, InputTokens: 1_000_000, EstCostUSD: 0.5},
+		// A virtual role falls back to the shape's native default (claude-opus-5, $5/M).
+		{Time: now, Provider: "openrouter", InboundShape: "anthropic", RequestedModel: "vector-worker", Status: 200, InputTokens: 1_000_000, EstCostUSD: 0.3},
+	}
+	s := AggregateWith(records, now.Add(-time.Hour), opts)
+	if s.SavingsPriced != 2 || s.SavingsUnpriced != 0 || !s.SavingsKnown() {
+		t.Fatalf("priced=%d unpriced=%d", s.SavingsPriced, s.SavingsUnpriced)
+	}
+	if want := (2.5 - 0.5) + (5 - 0.3); s.SavingsUSD < want-1e-9 || s.SavingsUSD > want+1e-9 {
+		t.Fatalf("savings = %.4f, want %.4f", s.SavingsUSD, want)
 	}
 }

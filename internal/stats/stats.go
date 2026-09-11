@@ -207,7 +207,7 @@ func Collect(cfg *config.Config, since time.Duration, recent int, f Filter) (Sna
 			}
 		}
 	}
-	snap := AggregateWith(window, windowStart, Options{Native: native, Recent: recent, Reference: ReferenceFrom(cfg)})
+	snap := AggregateWith(window, windowStart, Options{Native: native, Recent: recent, Reference: ReferenceFrom(cfg), ModelPrice: cfg.ReferencePriceFor})
 	snap.Daily = dailySeries(records, HistogramDays)
 	return snap, nil
 }
