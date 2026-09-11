@@ -49,6 +49,19 @@ vector claude route scout            # scout    -> the scout role
 vector codex  route explorer worker  # explorer -> the worker role
 ```
 
+**See which model each role uses — and change it.** `vector models` prints every
+role and the target it resolves to (`PREFER`, first match wins); `models use`
+edits it live and persists it.
+
+```sh
+vector models                                             # roles + the model each resolves to
+vector models use worker openrouter/z-ai/glm-5.3-flash    # change the worker role
+vector models use scout  openrouter/deepseek/deepseek-v4.1-flash --append   # add a fallback
+```
+
+Listing a native provider keeps that role on your subscription — that's why
+`architect` and `escalate` stay on Claude/Codex.
+
 Your prompts, tools, and MCP servers (Trove, Linear, and the rest) keep running
 natively — vector only chooses which model answers.
 
@@ -285,6 +298,9 @@ chooses one by name using its own spawn tool:
 | `vector-scout` | read-only search and summarization | GLM-5.3-Flash |
 | `vector-researcher` | long-context reading | Kimi-K3 / Gemini |
 | `vector-escalate` | hard or repeated-failure tasks | native Claude/Codex |
+
+These are defaults. Run `vector models` for the live mapping, and
+`vector models use <role> <target>` to change one — it applies immediately.
 
 Vector never hosts, sandboxes, or monitors a subagent. Subagents run natively in
 the harness; the router only chooses the model and translates wire formats.
