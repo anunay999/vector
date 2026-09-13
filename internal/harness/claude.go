@@ -52,6 +52,10 @@ func (c *Claude) sidecarPath() string {
 type claudeSidecar struct {
 	Keys   map[string]string `json:"keys"`
 	Agents []string          `json:"agents"`
+	// Model is the model string vector wrote (with [1m]); ModelPrev is what the
+	// user had, restored on disable.
+	Model     string `json:"model,omitempty"`
+	ModelPrev string `json:"model_prev,omitempty"`
 }
 
 func (c *Claude) loadSidecar() (claudeSidecar, error) {
@@ -111,6 +115,26 @@ func (c *Claude) Enable() (Report, error) {
 		env["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
 	}
 	setStringMap(settings, "env", env)
+
+	sc, err := c.loadSidecar()
+	if err != nil {
+		return rep, err
+	}
+
+	// Claude Code sizes its context window client-side and, behind a gateway,
+	// holds a Claude model to 200k unless the model carries its [1m] variant.
+	// Select it so the session gets the 1M window the model already has.
+	if m, _ := settings["model"].(string); m != "" && oneMCapable(m) &&
+		!strings.Contains(strings.ToLower(m), "[1m]") && env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != "1" {
+		tagged := m + "[1m]"
+		settings["model"] = tagged
+		if sc.Model == "" {
+			sc.ModelPrev = m
+		}
+		sc.Model = tagged
+		rep.add(path, "set model="+tagged+" (1M window behind a gateway)")
+	}
+
 	if err := writeJSONMap(path, settings); err != nil {
 		return rep, err
 	}
@@ -118,10 +142,6 @@ func (c *Claude) Enable() (Report, error) {
 	rep.add(path, "set ANTHROPIC_BASE_URL="+baseURL)
 	rep.add(path, "set "+toolSearchKey+"="+env[toolSearchKey]+" (deferred MCP tool schemas)")
 
-	sc, err := c.loadSidecar()
-	if err != nil {
-		return rep, err
-	}
 	sc.Keys["ANTHROPIC_BASE_URL"] = baseURL
 	sc.Keys["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
 	if !userSetToolSearch {
@@ -166,6 +186,18 @@ func (c *Claude) Disable() (Report, error) {
 		}
 	}
 	setStringMap(settings, "env", env)
+	if sc.Model != "" {
+		if cur, _ := settings["model"].(string); cur == sc.Model {
+			if sc.ModelPrev != "" {
+				settings["model"] = sc.ModelPrev
+				rep.add(path, "restored model="+sc.ModelPrev)
+			} else {
+				delete(settings, "model")
+				rep.add(path, "removed model")
+			}
+			rep.Changed = true
+		}
+	}
 	if err := writeJSONMap(path, settings); err != nil {
 		return rep, err
 	}
@@ -195,6 +227,7 @@ func (c *Claude) Status() (Status, error) {
 		"model":               stringValue(settings["model"]),
 		"auto_compact_window": env[autoCompactWindowKey],
 		"agents_unrestricted": fmt.Sprintf("%d", c.unrestrictedAgents()),
+		"one_m_disabled":      env["CLAUDE_CODE_DISABLE_1M_CONTEXT"],
 	}
 	return Status{
 		Harness: c.Name(),
@@ -287,6 +320,18 @@ func defaultAgentTools(role string) []string {
 		return []string{"Read", "Grep", "Glob", "Edit", "Write", "Bash", "Agent"}
 	}
 	return nil
+}
+
+// oneMCapable reports whether a Claude model id has a 1M-context variant worth
+// selecting behind a gateway. Haiku and other 200k models are left alone.
+func oneMCapable(model string) bool {
+	m := strings.ToLower(model)
+	for _, fam := range []string{"opus", "sonnet", "fable", "mythos"} {
+		if strings.Contains(m, fam) {
+			return true
+		}
+	}
+	return false
 }
 
 // unrestrictedAgents counts installed vector-* agent definitions that would

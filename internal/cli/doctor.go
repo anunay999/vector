@@ -139,9 +139,12 @@ func claudeContextChecks(info map[string]string) []check {
 	default:
 		out = append(out, check{Name: "claude/tool-search", Status: "ok", Detail: "ENABLE_TOOL_SEARCH=" + v})
 	}
-	if m := info["model"]; strings.Contains(strings.ToLower(m), "[1m]") && info["auto_compact_window"] == "" {
+	if info["one_m_disabled"] == "1" {
 		out = append(out, check{Name: "claude/1m-context", Status: "warn",
-			Detail: fmt.Sprintf("model %q: Claude Code only treats api.anthropic.com as 1M-entitled; behind a gateway the session can drop to a 200k auto-compact window, which loops when tool schemas exceed ~150k tokens. Pin it with CLAUDE_CODE_AUTO_COMPACT_WINDOW or keep the tool inventory small", m)})
+			Detail: "CLAUDE_CODE_DISABLE_1M_CONTEXT=1 holds every model to a 200k window"})
+	} else if m := info["model"]; m != "" && !strings.Contains(strings.ToLower(m), "[1m]") {
+		out = append(out, check{Name: "claude/1m-context", Status: "warn",
+			Detail: fmt.Sprintf("model %q has no [1m] variant, so a gateway session assumes a 200k window; run 'vector claude on' or select %s[1m]", m, m)})
 	}
 	switch v := info["agents_unrestricted"]; {
 	case v != "" && v != "0":
