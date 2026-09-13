@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 
 	"github.com/anunay999/vector/internal/config"
 	"github.com/anunay999/vector/internal/harness"
@@ -83,10 +85,31 @@ func newClaudeCmd() *cobra.Command {
 		return harness.NewClaude(c)
 	})
 	cmd.AddCommand(
+		newClaudeNativeCmd(),
 		newHarnessAgentsCmd("List Claude Code subagents and their models", claudeManager),
 		newHarnessRouteCmd("claude-code", "Route a Claude Code subagent to a role or model", claudeManager),
 	)
 	return cmd
+}
+
+// newClaudeNativeCmd runs Claude Code with the gateway env cleared for this one
+// session. Claude Code disables Remote Control (and desktop remote sessions)
+// whenever ANTHROPIC_BASE_URL points at a non-Anthropic host, so a session that
+// needs those has to run natively. A --settings override outranks the user
+// settings vector wrote, and an empty value is treated as unset.
+func newClaudeNativeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:                "native [claude args...]",
+		Short:              "Run Claude Code without the gateway (needed for Remote Control)",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			override := `{"env":{"ANTHROPIC_BASE_URL":"","ENABLE_TOOL_SEARCH":"","CLAUDE_CODE_SUBAGENT_MODEL":"","CLAUDE_CODE_AUTO_COMPACT_WINDOW":""}}`
+			argv := append([]string{"--settings", override}, args...)
+			c := exec.Command("claude", argv...)
+			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+			return c.Run()
+		},
+	}
 }
 
 func newCodexCmd() *cobra.Command {

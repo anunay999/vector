@@ -30,7 +30,7 @@ func TestClaudeRoundTripPreservesUserKeys(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settings, []byte(`{"env":{"KEEP":"yes"},"model":"opus"}`), 0o600); err != nil {
+	if err := os.WriteFile(settings, []byte(`{"env":{"KEEP":"yes"},"model":"haiku"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -46,7 +46,7 @@ func TestClaudeRoundTripPreservesUserKeys(t *testing.T) {
 	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:7331" {
 		t.Fatalf("base url = %q", env["ANTHROPIC_BASE_URL"])
 	}
-	if m["model"] != "opus" {
+	if m["model"] != "haiku" {
 		t.Fatal("enable clobbered the model setting")
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".claude", "agents", "vector-worker.md")); err != nil {
@@ -267,6 +267,46 @@ func TestClaudeEnableSetsToolSearchButRespectsUserValue(t *testing.T) {
 	m, _ = readJSONMap(settings)
 	if got := stringMap(m, "env")["ENABLE_TOOL_SEARCH"]; got != "true" {
 		t.Fatalf("disable removed the user's value: %q", got)
+	}
+}
+
+func TestClaudeEnableTagsModelFor1M(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, ".claude"))
+	t.Setenv("VECTOR_CONFIG_DIR", filepath.Join(dir, "vectorcfg"))
+	settings := filepath.Join(dir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(`{"model":"fable"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := NewClaude(testCfg(t))
+	if _, err := a.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := readJSONMap(settings)
+	if m["model"] != "fable[1m]" {
+		t.Fatalf("model = %v, want fable[1m]", m["model"])
+	}
+	if _, err := a.Disable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = readJSONMap(settings)
+	if m["model"] != "fable" {
+		t.Fatalf("disable did not restore model: %v", m["model"])
+	}
+	// Haiku is a 200k model and must not be tagged.
+	if err := os.WriteFile(settings, []byte(`{"model":"haiku"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Enable(); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = readJSONMap(settings)
+	if m["model"] != "haiku" {
+		t.Fatalf("haiku should not be tagged: %v", m["model"])
 	}
 }
 
