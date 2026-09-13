@@ -284,6 +284,13 @@ func (c *Claude) writeAgents() ([]string, error) {
 		return written, err
 	}
 	written = append(written, peerPath)
+	// A read-only monitor for observation and information gathering, on the
+	// haiku tier (model_map routes haiku to the cheap scout model).
+	monitorPath := filepath.Join(c.agentsDir(), "vector-monitor.md")
+	if err := writeFileAtomic(monitorPath, []byte(claudeMonitorDoc()), 0o600); err != nil {
+		return written, err
+	}
+	written = append(written, monitorPath)
 	sort.Strings(written)
 	return written, nil
 }
@@ -309,6 +316,24 @@ You are a persistent peer engineer working in this repository alongside the lead
 session. Do the work in your own context: read the files, make the edits, run the
 builds and tests, and keep the noisy output here. Reply to the lead with a
 concise result — what changed, where, and what is left — not a transcript.
+`
+}
+
+// claudeMonitorDoc is a read-only agent for observation and information
+// gathering. It runs on the haiku tier (model_map routes haiku to the cheap
+// scout model) and keeps log, test and file noise out of the lead's context.
+func claudeMonitorDoc() string {
+	return `---
+name: vector-monitor
+description: Monitor and gather information — watch builds, tests and logs, read files, search. Read-only, cheap tier.
+model: haiku
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+---
+
+You gather information and report it. Watch builds, tests and logs, read the
+files you need, search, and summarize what you found and what it means. Do not
+edit files. Keep the output in your own context and reply to the lead with the
+facts it asked for, not a transcript.
 `
 }
 
