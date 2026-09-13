@@ -20,20 +20,25 @@ import (
 //     list and plain text where the references were.
 const (
 	fieldContextManagement = "context_management"
-	fieldDeferLoading      = "defer_loading"
-	toolSearchTypePrefix   = "tool_search_tool"
-	blockToolReference     = "tool_reference"
-	blockServerToolUse     = "server_tool_use"
-	blockToolSearchResult  = "tool_search_tool_result"
+	// fieldOutputConfig carries the per-request effort and the per-message
+	// effort form (a role:"system" message with empty content whose only field
+	// is output_config). Only Anthropic understands the mid-conversation form.
+	fieldOutputConfig     = "output_config"
+	fieldDeferLoading     = "defer_loading"
+	toolSearchTypePrefix  = "tool_search_tool"
+	blockToolReference    = "tool_reference"
+	blockServerToolUse    = "server_tool_use"
+	blockToolSearchResult = "tool_search_tool_result"
 )
 
 // anthropicOnlyBetas are anthropic-beta flags that only api.anthropic.com
 // understands. They are removed from the forwarded header for other upstreams
 // so a provider that validates betas does not reject the request.
 var anthropicOnlyBetas = map[string]bool{
-	"advanced-tool-use-2025-11-20":  true,
-	"tool-search-tool-2025-10-19":   true,
-	"context-management-2025-06-27": true,
+	"advanced-tool-use-2025-11-20":              true,
+	"tool-search-tool-2025-10-19":               true,
+	"context-management-2025-06-27":             true,
+	"mid-conversation-output-config-2026-07-01": true,
 }
 
 // prepareBody replaces the top-level "model" field and, for non-Anthropic
@@ -58,7 +63,14 @@ func prepareBody(body []byte, model string, keepAnthropicExtras bool) ([]byte, e
 			}
 		}
 		if msgs, ok := obj["messages"]; ok {
-			if out, changed := stripToolSearchBlocks(msgs); changed {
+			out := msgs
+			if o, changed := stripToolSearchBlocks(out); changed {
+				out = o
+			}
+			if o, changed := stripEffortUpdates(out); changed {
+				out = o
+			}
+			if !bytes.Equal(out, msgs) {
 				obj["messages"] = out
 			}
 		}
@@ -144,6 +156,62 @@ func stripToolSearchBlocks(raw json.RawMessage) (json.RawMessage, bool) {
 		return raw, false
 	}
 	return enc, true
+}
+
+// stripEffortUpdates removes the per-message effort form (beta
+// mid-conversation-output-config-2026-07-01): a role:"system" message with empty
+// content whose only field is output_config.effort. Anthropic accepts it;
+// third-party providers reject it ("mid-conversation reasoning effort
+// (configuration_update) is not supported"). Message-level output_config is
+// dropped, and an effort-only system message that becomes empty is removed.
+func stripEffortUpdates(raw json.RawMessage) (json.RawMessage, bool) {
+	var msgs []json.RawMessage
+	if err := json.Unmarshal(raw, &msgs); err != nil {
+		return raw, false
+	}
+	changed := false
+	out := make([]json.RawMessage, 0, len(msgs))
+	for _, m := range msgs {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(m, &obj); err != nil {
+			out = append(out, m)
+			continue
+		}
+		if _, ok := obj[fieldOutputConfig]; !ok {
+			out = append(out, m)
+			continue
+		}
+		delete(obj, fieldOutputConfig)
+		changed = true
+		if rawString(obj["role"]) == "system" && emptyContent(obj["content"]) {
+			continue // effort-only system message: nothing left to send
+		}
+		if enc, err := json.Marshal(obj); err == nil {
+			m = enc
+		}
+		out = append(out, m)
+	}
+	if !changed {
+		return raw, false
+	}
+	enc, err := json.Marshal(out)
+	if err != nil {
+		return raw, false
+	}
+	return enc, true
+}
+
+// emptyContent reports whether a message content value is absent or empty.
+func emptyContent(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	switch strings.TrimSpace(string(raw)) {
+	case "", "[]", `""`, "null":
+		return true
+	default:
+		return false
+	}
 }
 
 // stripBlocks processes one content array. When top is true the array is a
