@@ -143,3 +143,39 @@ func TestHasToolSearch(t *testing.T) {
 		t.Fatal("plain body misdetected")
 	}
 }
+
+func TestPrepareBodyStripsMidConversationEffort(t *testing.T) {
+	body := `{"model":"vector-worker","output_config":{"effort":"high"},"messages":[
+	 {"role":"user","content":"go"},
+	 {"role":"assistant","content":"ok"},
+	 {"role":"system","content":[],"output_config":{"effort":"low"}},
+	 {"role":"user","content":"next"}
+	]}`
+	out, err := prepareBody([]byte(body), "deepseek/deepseek-v4.1-flash", false)
+	if err != nil {
+		t.Fatalf("prepareBody: %v", err)
+	}
+	var obj struct {
+		OutputConfig map[string]any   `json:"output_config"`
+		Messages     []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if len(obj.Messages) != 3 {
+		t.Fatalf("messages = %d, want 3 (effort-only system message dropped):\n%s", len(obj.Messages), out)
+	}
+	for _, m := range obj.Messages {
+		if _, ok := m["output_config"]; ok {
+			t.Fatalf("message kept output_config:\n%s", out)
+		}
+	}
+	if obj.OutputConfig["effort"] != "high" {
+		t.Fatalf("top-level output_config should be kept, got %v", obj.OutputConfig)
+	}
+	// Anthropic keeps the mid-conversation update.
+	out, _ = prepareBody([]byte(body), "claude-fable-5-1", true)
+	if !strings.Contains(string(out), `"output_config":{"effort":"low"}`) {
+		t.Fatalf("Anthropic upstream must keep the effort update:\n%s", out)
+	}
+}
