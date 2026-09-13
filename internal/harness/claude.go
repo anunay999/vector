@@ -21,6 +21,10 @@ const (
 	// model is 1M-entitled but sits behind a gateway URL (doctor reads it to
 	// know the [1m] caveat is already handled).
 	autoCompactWindowKey = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+	// agentTeamsKey enables Claude Code's experimental agent teams, so the lead
+	// can spawn a persistent peer session (vector-peer) instead of one-shot
+	// subagents. A user value is respected.
+	agentTeamsKey = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 )
 
 // Claude wires Claude Code by editing its settings.json env block and installing
@@ -110,6 +114,13 @@ func (c *Claude) Enable() (Report, error) {
 	if !userSetToolSearch {
 		env[toolSearchKey] = toolSearchValue
 	}
+	// Agent teams let the lead spawn a persistent peer session (vector-peer)
+	// instead of one-shot subagents, so file reads, edits and test output stay
+	// in the peer's context. Experimental in Claude Code.
+	_, userSetTeams := env[agentTeamsKey]
+	if !userSetTeams {
+		env[agentTeamsKey] = "1"
+	}
 	sub := c.cfg.Harnesses["claude-code"].SubagentModel
 	if sub != "" {
 		env["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
@@ -141,11 +152,17 @@ func (c *Claude) Enable() (Report, error) {
 	rep.Changed = true
 	rep.add(path, "set ANTHROPIC_BASE_URL="+baseURL)
 	rep.add(path, "set "+toolSearchKey+"="+env[toolSearchKey]+" (deferred MCP tool schemas)")
+	if !userSetTeams {
+		rep.add(path, "set "+agentTeamsKey+"=1 (agent teams: persistent peer sessions)")
+	}
 
 	sc.Keys["ANTHROPIC_BASE_URL"] = baseURL
 	sc.Keys["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "1"
 	if !userSetToolSearch {
 		sc.Keys[toolSearchKey] = toolSearchValue
+	}
+	if !userSetTeams {
+		sc.Keys[agentTeamsKey] = "1"
 	}
 	if sub != "" {
 		sc.Keys["CLAUDE_CODE_SUBAGENT_MODEL"] = sub
@@ -259,6 +276,14 @@ func (c *Claude) writeAgents() ([]string, error) {
 		}
 		written = append(written, path)
 	}
+	// A persistent peer session the lead can spawn as an agent-team teammate.
+	// It runs on sonnet, which model_map routes to the cheap worker model, and
+	// keeps the lead's context clean of reads, edits and test output.
+	peerPath := filepath.Join(c.agentsDir(), "vector-peer.md")
+	if err := writeFileAtomic(peerPath, []byte(claudePeerDoc()), 0o600); err != nil {
+		return written, err
+	}
+	written = append(written, peerPath)
 	sort.Strings(written)
 	return written, nil
 }
@@ -267,6 +292,24 @@ func (c *Claude) writeAgents() ([]string, error) {
 func stringValue(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// claudePeerDoc is the definition for a persistent peer session the lead can
+// spawn as an agent-team teammate. It does the noisy work in its own context
+// and reports a concise result, so the lead's context stays clean.
+func claudePeerDoc() string {
+	return `---
+name: vector-peer
+description: Persistent peer session for execution work. Runs on the cheap tier; keeps the lead's context clean.
+model: sonnet
+tools: Read, Grep, Glob, Edit, Write, Bash
+---
+
+You are a persistent peer engineer working in this repository alongside the lead
+session. Do the work in your own context: read the files, make the edits, run the
+builds and tests, and keep the noisy output here. Reply to the lead with a
+concise result — what changed, where, and what is left — not a transcript.
+`
 }
 
 func claudeAgentDoc(name, description, model string, tools []string) string {
